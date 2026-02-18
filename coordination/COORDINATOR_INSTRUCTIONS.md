@@ -17,5 +17,11 @@ Example:
 4. Tracks blockers and creates follow-up tasks.
 5. Verifies done criteria before final handoff.
 
+## Operating with one-chat coordination
+- You can talk only to the coordinator.
+- Keep background workers running with `scripts/agents_ctl.sh start`.
+- Coordinator assigns tasks; workers pick them up automatically.
+- Coordinator monitors `coordination/blocked/*` and resolves dependencies by re-tasking.
+
 ## Direct agent mode
 If you already know exactly what to implement, you can bypass coordinator and place a task directly in `coordination/inbox/<agent>/`.

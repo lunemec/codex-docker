@@ -8,6 +8,8 @@ This repository defines a Codex-focused developer Docker image (`Dockerfile.code
 - `CHANGELOG.md`: record of notable project changes.
 - `coordination/`: local multi-agent task orchestration board.
 - `scripts/taskctl.sh`: helper CLI for local task transitions.
+- `scripts/agent_worker.sh`: polling worker loop for specialist execution.
+- `scripts/agents_ctl.sh`: start/stop/status for background specialist workers.
 
 ## Agent Goals
 When working in this repo, prioritize:
@@ -36,6 +38,7 @@ After any edit to `Dockerfile.codex-dev`, run:
 - Specialist agents claim tasks using `scripts/taskctl.sh claim <agent>`.
 - Specialists only edit task files in `coordination/in_progress/<agent>/`.
 - Finish with `scripts/taskctl.sh done <agent> <TASK_ID>` or `scripts/taskctl.sh block <agent> <TASK_ID> \"reason\"`.
+- Run continuous background workers with `scripts/agents_ctl.sh start` and monitor using `scripts/agents_ctl.sh status`.
 
 ## Out of Scope Unless Asked
 - Multi-stage optimization or aggressive image-size reduction.

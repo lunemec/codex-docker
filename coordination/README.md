@@ -47,6 +47,30 @@ scripts/taskctl.sh done be TASK-0100
 scripts/taskctl.sh block be TASK-0100 "Waiting on DB schema"
 ```
 
+## Background Workers
+Run specialist agents in the background so they periodically poll for tasks:
+
+```bash
+# start db/be/fe/review workers (30s poll)
+scripts/agents_ctl.sh start
+
+# optional custom poll interval
+scripts/agents_ctl.sh restart --interval 20
+
+# inspect worker and queue state
+scripts/agents_ctl.sh status
+
+# stop all workers
+scripts/agents_ctl.sh stop
+```
+
+Worker behavior:
+- Each worker claims from `coordination/inbox/<agent>/`.
+- Worker runs `codex exec` with role guidance from `coordination/roles/<agent>.md`.
+- On success: task moves to `coordination/done/<agent>/`.
+- On failure: task moves to `coordination/blocked/<agent>/` with reason.
+- Per-task execution logs are written to `coordination/runtime/logs/<agent>/`.
+
 ## How to operate in practice
 - Tell the coordinator what you want at product level (goal + constraints).
 - Coordinator decomposes into DB/BE/FE/review tasks.
