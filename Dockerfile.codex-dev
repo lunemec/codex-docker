@@ -1,0 +1,76 @@
+# Dockerfile.codex-dev
+FROM node:22-bookworm
+
+ARG GO_VERSION=1.23.8
+ARG RUST_TOOLCHAIN=stable
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  bash ca-certificates curl git docker.io python3 make g++ \
+  less vim nano tree tmux ripgrep fd-find jq yq zip xz-utils \
+  procps iproute2 iputils-ping dnsutils netcat-openbsd lsof strace rsync openssh-client \
+  build-essential pkg-config cmake ninja-build libssl-dev libffi-dev \
+  python3-pip python3-venv pipx shellcheck shfmt \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN ln -sf /usr/bin/fdfind /usr/local/bin/fd
+
+RUN set -eux; \
+  arch="$(dpkg --print-architecture)"; \
+  case "$arch" in \
+    amd64) goarch='amd64' ;; \
+    arm64) goarch='arm64' ;; \
+    *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; \
+  esac; \
+  curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${goarch}.tar.gz" -o /tmp/go.tgz; \
+  rm -rf /usr/local/go; \
+  tar -C /usr/local -xzf /tmp/go.tgz; \
+  rm -f /tmp/go.tgz
+
+ENV PATH="/usr/local/go/bin:/root/.cargo/bin:/root/.local/bin:${PATH}"
+ENV RUSTUP_HOME="/root/.rustup"
+ENV CARGO_HOME="/root/.cargo"
+ENV PIPX_HOME="/opt/pipx"
+ENV PIPX_BIN_DIR="/usr/local/bin"
+
+RUN cat >/etc/profile.d/codex-paths.sh <<'EOF' \
+  && chmod 0644 /etc/profile.d/codex-paths.sh
+#!/usr/bin/env sh
+for p in /usr/local/go/bin /root/.cargo/bin /root/.local/bin; do
+  case ":$PATH:" in
+    *":$p:"*) ;;
+    *) PATH="$p:$PATH" ;;
+  esac
+done
+export PATH
+EOF
+
+RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain "${RUST_TOOLCHAIN}"
+
+RUN pipx install uv \
+  && pipx install poetry \
+  && pipx install pre-commit
+
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+RUN npm install -g @openai/codex \
+  && mv /usr/local/bin/codex /usr/local/bin/codex-real
+
+RUN set -eux; \
+  node --version; npm --version; pnpm --version; \
+  python3 --version; pip3 --version; uv --version; poetry --version; \
+  go version; rustc --version; cargo --version; \
+  rg --version; fd --version; jq --version; yq --version
+
+# Default: fully automatic, no sandbox/approvals (for isolated container use only)
+RUN cat >/usr/local/bin/codex <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ -f /.dockerenv ]] || { echo "Refusing outside Docker"; exit 1; }
+exec /usr/local/bin/codex-real \
+  --dangerously-bypass-approvals-and-sandbox \
+  "$@"
+EOF
+RUN chmod +x /usr/local/bin/codex
+
+WORKDIR /workspace
+CMD ["bash"]
