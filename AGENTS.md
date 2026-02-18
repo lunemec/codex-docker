@@ -6,12 +6,15 @@ This repository defines a Codex-focused developer Docker image (`Dockerfile.code
 ## Primary File
 - `Dockerfile.codex-dev`: single source of truth for the development image.
 - `CHANGELOG.md`: record of notable project changes.
+- `coordination/`: local multi-agent task orchestration board.
+- `scripts/taskctl.sh`: helper CLI for local task transitions.
 
 ## Agent Goals
 When working in this repo, prioritize:
 1. Keeping the image broadly useful for common Python, Go, Rust, and Node.js workflows.
 2. Preserving deterministic, reproducible Docker builds.
 3. Verifying changes with real Docker build + runtime smoke checks.
+4. Using the local coordination workflow for multi-agent execution.
 
 ## Required Validation After Dockerfile Changes
 After any edit to `Dockerfile.codex-dev`, run:
@@ -26,6 +29,13 @@ After any edit to `Dockerfile.codex-dev`, run:
 - Clean apt lists to reduce layer size.
 - Keep PATH behavior working in both non-login and login shells.
 - Update `CHANGELOG.md` whenever behavior, tooling, or verification expectations change.
+
+## Local Multi-Agent Workflow
+- Create tasks using `scripts/taskctl.sh create <TASK_ID> <TITLE>`.
+- Coordinator assigns tasks from `coordination/inbox/coordinator/` to specialist inboxes with `scripts/taskctl.sh assign`.
+- Specialist agents claim tasks using `scripts/taskctl.sh claim <agent>`.
+- Specialists only edit task files in `coordination/in_progress/<agent>/`.
+- Finish with `scripts/taskctl.sh done <agent> <TASK_ID>` or `scripts/taskctl.sh block <agent> <TASK_ID> \"reason\"`.
 
 ## Out of Scope Unless Asked
 - Multi-stage optimization or aggressive image-size reduction.
