@@ -47,6 +47,8 @@ scripts/taskctl.sh done be TASK-0100
 scripts/taskctl.sh block be TASK-0100 "Waiting on DB schema"
 ```
 
+Sample tasks are stored in `coordination/examples/` and are not polled by workers.
+
 ## Background Workers
 Run specialist agents in the background so they periodically poll for tasks:
 
