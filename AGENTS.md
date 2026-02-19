@@ -12,7 +12,7 @@ This repository defines a Codex-focused developer Docker image (`Dockerfile.code
 - `scripts/agents_ctl.sh`: start/stop/status for background specialist workers.
 - `scripts/project_container.sh`: host-side launcher for per-project Docker workspaces mounted at `/workspace`.
 - `container/codex-init-workspace.sh`: image bootstrap script that seeds baseline coordination files into `/workspace`.
-- `container/codex-entrypoint.sh`: image entrypoint that runs workspace bootstrap on container start.
+- `container/codex-entrypoint.sh`: image entrypoint that prints startup MOTD with quick commands.
 
 ## Agent Goals
 When working in this repo, prioritize:
@@ -45,6 +45,7 @@ After any edit to `Dockerfile.codex-dev`, run:
 - Finish with `scripts/taskctl.sh done <agent> <TASK_ID>` or `scripts/taskctl.sh block <agent> <TASK_ID> \"reason\"`.
 - Blocking automatically moves the task to `coordination/blocked/<agent>/<NNN>/` and creates a priority `000` blocker report task for the creator agent.
 - Run continuous background workers with `scripts/agents_ctl.sh start` and monitor with `scripts/agents_ctl.sh status`.
+- For execution environments that reap detached jobs between terminal calls, use one-shot parallel workers with `scripts/agents_ctl.sh once`.
 - Coordination scripts enforce Docker-only execution and require `/workspace`-scoped paths for roots/worker/taskctl scripts.
 
 ## Out of Scope Unless Asked

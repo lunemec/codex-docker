@@ -135,18 +135,28 @@ Environment overrides:
 
 ## Workspace Bootstrap Behavior
 
-At container start, entrypoint runs:
-- `codex-init-workspace --workspace /workspace --quiet`
+Workspace bootstrap is now opt-in.
+At container start, entrypoint does not auto-seed `/workspace`.
 
-This seeds missing files from `/opt/codex-baseline` into:
+Use `codex-init-workspace` when you want to seed baseline assets:
+
+```bash
+# Seed only missing files
+codex-init-workspace --workspace /workspace
+
+# Overwrite with baseline files
+codex-init-workspace --workspace /workspace --force
+```
+
+This command seeds from `/opt/codex-baseline` into:
 - `/workspace/scripts`
 - `/workspace/coordination`
 
-Existing files are not overwritten unless `--force` is used:
-
-```bash
-codex-init-workspace --workspace /workspace --force
-```
+For interactive shell sessions, container startup prints a short MOTD with quick commands for:
+- workspace bootstrap (`codex-init-workspace`)
+- coordination workers (`scripts/agents_ctl.sh start`)
+- `ralph`
+- `codex`
 
 ## Multi-Agent Coordination
 
@@ -202,6 +212,9 @@ scripts/agents_ctl.sh start --all
 
 # Start selected agents with custom poll interval
 scripts/agents_ctl.sh start designer architect fe be --interval 20
+
+# Run one-shot workers in parallel and wait (useful where detached jobs do not persist)
+scripts/agents_ctl.sh once designer architect fe be
 ```
 
 Monitor and stop:
@@ -214,6 +227,10 @@ scripts/agents_ctl.sh stop
 Worker logs and runtime files:
 - `coordination/runtime/logs/`
 - `coordination/runtime/pids/`
+
+Notes:
+- `scripts/agents_ctl.sh status` now cleans stale PID files automatically.
+- In environments that reap detached background jobs between separate shell invocations, prefer `scripts/agents_ctl.sh once ...` for deterministic execution.
 
 ## Safety Guards
 

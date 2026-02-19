@@ -43,7 +43,7 @@ Host launcher (recommended for cross-project use):
 
 Image baseline bootstrap:
 - The toolbelt image now carries a canonical coordination baseline under `/opt/codex-baseline`.
-- On container start, `codex-entrypoint` runs `codex-init-workspace` to seed missing files into `/workspace/scripts` and `/workspace/coordination`.
+- On container start, `codex-entrypoint` prints a MOTD with quick-start commands (bootstrap is opt-in).
 - Existing project files are not overwritten unless `codex-init-workspace --force` is used.
 - You can also run bootstrap manually: `codex-init-workspace --workspace /workspace` (or `--force` to refresh).
 
@@ -89,6 +89,9 @@ scripts/agents_ctl.sh start --all
 # start only selected agents
 scripts/agents_ctl.sh start designer architect fe be --interval 20
 
+# run one-shot workers in parallel and wait for completion
+scripts/agents_ctl.sh once designer architect fe be
+
 # inspect and stop
 scripts/agents_ctl.sh status
 scripts/agents_ctl.sh stop
@@ -100,6 +103,8 @@ Worker behavior:
 - Runs `ensure-agent --task` before execution to refresh role guidance when task context changes.
 - On success, moves task to `done`.
 - On failure, moves task to `blocked` and triggers blocker report to creator.
+- `status` auto-cleans stale PID files from dead workers.
+- For terminals that do not preserve detached background jobs across calls, use `agents_ctl.sh once` instead of `start`.
 
 ## Suggested Operating Pattern
 1. Give requirements to `pm` in one conversation.

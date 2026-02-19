@@ -12,7 +12,8 @@ All notable changes to this project are documented in this file.
 - New default role prompts for `pm`, `designer`, and `architect`.
 - Runtime safety guards that require orchestration scripts to execute inside Docker and from `/workspace`.
 - Host-side per-project container launcher `scripts/project_container.sh` for mounting arbitrary project paths to `/workspace`.
-- Image-baked coordination baseline under `/opt/codex-baseline` with startup workspace seeding via `codex-init-workspace`.
+- Image-baked coordination baseline under `/opt/codex-baseline` with opt-in workspace seeding via `codex-init-workspace`.
+- `scripts/agents_ctl.sh once` mode to run per-agent `--once` workers in parallel and wait in a single session.
 
 ### Changed
 - `AGENTS.md` now documents background agent orchestration commands and files.
@@ -21,7 +22,9 @@ All notable changes to this project are documented in this file.
 - `scripts/agents_ctl.sh` now discovers agents from role files instead of a hardcoded list.
 - Coordination docs, examples, and task templates now describe multi-layer PM-driven delegation.
 - Orchestration script path overrides (`TASK_ROOT_DIR`, `AGENT_ROOT_DIR`, `AGENT_TASKCTL`, `AGENT_WORKER_SCRIPT`) are now constrained to `/workspace`.
-- Container startup now runs `/usr/local/bin/codex-entrypoint`, which bootstraps missing coordination files in `/workspace` before executing the command.
+- Container startup now prints an interactive MOTD with quick commands for workspace bootstrap, coordination workers, `ralph`, and `codex`.
+- `/usr/local/bin/codex-entrypoint` no longer auto-bootstraps `/workspace`; coordination/scripts seeding now happens only when `codex-init-workspace` is run explicitly.
+- `scripts/agents_ctl.sh status` now cleans stale/invalid pid files automatically and validates pid ownership against the expected worker+agent command.
 
 ## [0.1.0] - 2026-02-18
 ### Added
