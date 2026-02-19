@@ -38,13 +38,53 @@ On the host machine:
 docker build -f Dockerfile.codex-dev -t codex-dev:toolbelt .
 ```
 
-2. Run an interactive container with your current repository mounted to `/workspace`:
+2. Run an interactive container with your current repository, local Codex credentials, and optional host Docker access:
 
 ```bash
 docker run --rm -it \
-  -v "$(pwd)":/workspace \
+  -v "$PWD":/workspace \
+  -w /workspace \
+  -v "$HOME/.codex:/root/.codex" \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  codex-dev:toolbelt
+```
+
+Command breakdown:
+- `--rm`: remove the container when you exit.
+- `-it`: keep STDIN open and allocate a TTY for interactive shell use.
+- `-v "$PWD":/workspace`: mount your current host directory into the container.
+- `-w /workspace`: start the shell in `/workspace`.
+- `-v "$HOME/.codex:/root/.codex"`: reuse your host Codex login/config inside the container.
+- `-v /var/run/docker.sock:/var/run/docker.sock`: let containerized tools talk to the host Docker daemon.
+- `codex-dev:toolbelt`: image name to run.
+
+Common variants:
+- Without local Codex login mount (you will authenticate inside the container each time):
+
+```bash
+docker run --rm -it \
+  -v "$PWD":/workspace \
   -w /workspace \
   -v /var/run/docker.sock:/var/run/docker.sock \
+  codex-dev:toolbelt
+```
+
+- Without Docker socket mount (container cannot control host Docker):
+
+```bash
+docker run --rm -it \
+  -v "$PWD":/workspace \
+  -w /workspace \
+  -v "$HOME/.codex:/root/.codex" \
+  codex-dev:toolbelt
+```
+
+- Without local Codex mount and without Docker socket (fully isolated session):
+
+```bash
+docker run --rm -it \
+  -v "$PWD":/workspace \
+  -w /workspace \
   codex-dev:toolbelt
 ```
 
