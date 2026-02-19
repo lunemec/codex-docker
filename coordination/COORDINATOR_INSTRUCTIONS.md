@@ -1,27 +1,36 @@
-# Coordinator Usage
+# PM / Coordinator Usage
 
-## What to tell the coordinator
-Provide this in one message:
-- Goal: what outcome you want.
-- Scope: in/out boundaries.
-- Constraints: time, compatibility, risk limits.
-- Acceptance criteria: tests, behavior, and completion definition.
+Use this file as the operating contract for a single top-level orchestrator (`pm` or `coordinator`).
 
-Example:
-"Implement profile management. Keep backward compatibility for API v1. Add DB migration, BE endpoints, FE page, and review. Done means Docker build + smoke tests pass and changelog updated."
+## Input You Need From User
+Ask for this in one pass:
+- Goal: desired product/business outcome.
+- Scope: explicit in-scope and out-of-scope.
+- Constraints: deadlines, compatibility, risk tolerance, stack limits.
+- Acceptance criteria: exact behavior and verification commands.
 
-## What the coordinator does
-1. Breaks work into DB/BE/FE/review tasks.
-2. Creates tasks in `coordination/inbox/coordinator/`.
-3. Assigns tasks to agent inboxes.
-4. Tracks blockers and creates follow-up tasks.
-5. Verifies done criteria before final handoff.
+## Your Orchestration Responsibilities
+1. Clarify missing requirements before decomposition.
+2. Create parent task(s) for planning/architecture as needed.
+3. Delegate tasks to skill agents with numeric priorities.
+4. Include `parent_task_id` / dependency chain for traceability.
+5. Monitor blocked reports and unblock quickly.
+6. Close the loop only when acceptance criteria are verifiably met.
 
-## Operating with one-chat coordination
-- You can talk only to the coordinator.
-- Keep background workers running with `scripts/agents_ctl.sh start`.
-- Coordinator assigns tasks; workers pick them up automatically.
-- Coordinator monitors `coordination/blocked/*` and resolves dependencies by re-tasking.
+## Delegation Rules
+- Use `scripts/taskctl.sh delegate <from> <to> ...` for every handoff.
+- Delegate to skills, not technologies (examples: `designer`, `architect`, `fe`, `be`, `db`, `qa`, `review`).
+- Keep tasks small and testable.
+- Prefer explicit prompts over broad goals.
 
-## Direct agent mode
-If you already know exactly what to implement, you can bypass coordinator and place a task directly in `coordination/inbox/<agent>/`.
+## Blocker Handling
+- When a child task is blocked, a priority-`000` blocker report is queued to the creator agent.
+- Treat blocker reports as interrupt-level work.
+- Resolve by clarifying requirements, re-ordering dependencies, or re-scoping.
+- Create follow-up tasks and continue pipeline execution.
+
+## One-Chat Operation
+- User talks to `pm` only.
+- `pm` gathers detail and delegates to the right skill folders.
+- Specialists can further delegate to sub-specialists.
+- Pipeline can have arbitrary depth as long as creator/owner chain is maintained.

@@ -10,6 +10,9 @@ This repository defines a Codex-focused developer Docker image (`Dockerfile.code
 - `scripts/taskctl.sh`: helper CLI for local task transitions.
 - `scripts/agent_worker.sh`: polling worker loop for specialist execution.
 - `scripts/agents_ctl.sh`: start/stop/status for background specialist workers.
+- `scripts/project_container.sh`: host-side launcher for per-project Docker workspaces mounted at `/workspace`.
+- `container/codex-init-workspace.sh`: image bootstrap script that seeds baseline coordination files into `/workspace`.
+- `container/codex-entrypoint.sh`: image entrypoint that runs workspace bootstrap on container start.
 
 ## Agent Goals
 When working in this repo, prioritize:
@@ -33,12 +36,16 @@ After any edit to `Dockerfile.codex-dev`, run:
 - Update `CHANGELOG.md` whenever behavior, tooling, or verification expectations change.
 
 ## Local Multi-Agent Workflow
-- Create tasks using `scripts/taskctl.sh create <TASK_ID> <TITLE>`.
-- Coordinator assigns tasks from `coordination/inbox/coordinator/` to specialist inboxes with `scripts/taskctl.sh assign`.
-- Specialist agents claim tasks using `scripts/taskctl.sh claim <agent>`.
-- Specialists only edit task files in `coordination/in_progress/<agent>/`.
+- Create/initialize skill agents with `scripts/taskctl.sh ensure-agent <agent>`.
+- For task-aware prompt tuning, run `scripts/taskctl.sh ensure-agent <agent> --task <TASK_ID|TASK_FILE>` (auto-refreshes unfit role prompts).
+- Create tasks using `scripts/taskctl.sh create <TASK_ID> <TITLE> --to <owner> --from <creator> --priority <N>`.
+- Delegate downstream work using `scripts/taskctl.sh delegate <from> <to> <TASK_ID> <TITLE> --priority <N> --parent <TASK_ID>`.
+- Agents claim tasks with `scripts/taskctl.sh claim <agent>` from `coordination/inbox/<agent>/<NNN>/`.
+- Agents only edit task files in `coordination/in_progress/<agent>/` during execution.
 - Finish with `scripts/taskctl.sh done <agent> <TASK_ID>` or `scripts/taskctl.sh block <agent> <TASK_ID> \"reason\"`.
-- Run continuous background workers with `scripts/agents_ctl.sh start` and monitor using `scripts/agents_ctl.sh status`.
+- Blocking automatically moves the task to `coordination/blocked/<agent>/<NNN>/` and creates a priority `000` blocker report task for the creator agent.
+- Run continuous background workers with `scripts/agents_ctl.sh start` and monitor with `scripts/agents_ctl.sh status`.
+- Coordination scripts enforce Docker-only execution and require `/workspace`-scoped paths for roots/worker/taskctl scripts.
 
 ## Out of Scope Unless Asked
 - Multi-stage optimization or aggressive image-size reduction.

@@ -1,9 +1,48 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="coordination"
-TASKCTL="scripts/taskctl.sh"
+ROOT="${AGENT_ROOT_DIR:-coordination}"
+TASKCTL="${AGENT_TASKCTL:-scripts/taskctl.sh}"
 DEFAULT_INTERVAL=30
+
+abs_path() {
+  local path="$1"
+  if command -v realpath >/dev/null 2>&1; then
+    realpath -m "$path"
+  else
+    readlink -f "$path"
+  fi
+}
+
+require_container_workspace() {
+  [[ -f /.dockerenv ]] || {
+    echo "agent_worker must run inside Docker (.dockerenv not found)" >&2
+    exit 1
+  }
+
+  local cwd
+  cwd="$(pwd -P)"
+  [[ "$cwd" == "/workspace" || "$cwd" == /workspace/* ]] || {
+    echo "agent_worker must run from /workspace (current: $cwd)" >&2
+    exit 1
+  }
+
+  local root_abs
+  root_abs="$(abs_path "$ROOT")"
+  [[ "$root_abs" == "/workspace" || "$root_abs" == /workspace/* ]] || {
+    echo "AGENT_ROOT_DIR must resolve under /workspace (current: $root_abs)" >&2
+    exit 1
+  }
+
+  local taskctl_abs
+  taskctl_abs="$(abs_path "$TASKCTL")"
+  [[ "$taskctl_abs" == "/workspace" || "$taskctl_abs" == /workspace/* ]] || {
+    echo "AGENT_TASKCTL must resolve under /workspace (current: $taskctl_abs)" >&2
+    exit 1
+  }
+}
+
+require_container_workspace
 
 usage() {
   cat <<USAGE
@@ -14,17 +53,16 @@ Environment overrides:
   AGENT_ROOT_DIR          default: coordination
   AGENT_POLL_INTERVAL     default: 30
   AGENT_EXEC_CMD          default: codex exec ...
-
-Example:
-  $0 be --interval 20
+  AGENT_TASKCTL           default: scripts/taskctl.sh
 USAGE
 }
 
 require_agent() {
-  case "$1" in
-    db|be|fe|review) ;;
-    *) echo "invalid specialist agent: $1" >&2; exit 1 ;;
-  esac
+  local agent="$1"
+  [[ "$agent" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || {
+    echo "invalid agent: $agent" >&2
+    exit 1
+  }
 }
 
 log() {
@@ -38,13 +76,15 @@ field_value() {
 }
 
 first_in_progress_task() {
-  find "$ROOT/in_progress/$AGENT" -maxdepth 1 -type f -name 'TASK-*.md' | sort | head -n1
+  find "$ROOT/in_progress/$AGENT" -maxdepth 1 -type f -name '*.md' | sort | head -n1
 }
 
 build_prompt_file() {
   local task_file="$1"
   local prompt_file="$2"
   local role_file="$ROOT/roles/$AGENT.md"
+
+  [[ -f "$role_file" ]] || { echo "missing role file: $role_file" >&2; exit 1; }
 
   cat >"$prompt_file" <<PROMPT
 You are running as background worker agent '$AGENT' in repository '$WORKDIR'.
@@ -68,7 +108,7 @@ Execution requirements:
 - Keep changes scoped to the task.
 - Run relevant checks/tests for touched areas.
 - Update the task file's "## Result" section with concise outcomes and verification commands.
-- If you cannot complete due to dependency or ambiguity, clearly state blocker in the task file and exit non-zero.
+- If blocked by dependency or ambiguity, clearly state blocker in the task file and exit non-zero.
 PROMPT
 }
 
@@ -86,6 +126,7 @@ run_task() {
 
   local prompt_file
   prompt_file="$(mktemp)"
+  "$TASKCTL" ensure-agent "$AGENT" --task "$task_file" >/dev/null
   build_prompt_file "$task_file" "$prompt_file"
 
   log "starting $task_id"
@@ -101,7 +142,7 @@ run_task() {
   rm -f "$prompt_file"
 
   if [[ $rc -eq 0 ]]; then
-    "$TASKCTL" done "$AGENT" "$task_id" >/dev/null
+    "$TASKCTL" done "$AGENT" "$task_id" "Completed by worker; log: $log_file" >/dev/null
     log "completed $task_id (log: $log_file)"
   else
     "$TASKCTL" block "$AGENT" "$task_id" "worker command failed (exit=$rc); see $log_file" >/dev/null || true
@@ -145,9 +186,7 @@ AGENT="$1"
 shift || true
 require_agent "$AGENT"
 
-ROOT="${AGENT_ROOT_DIR:-$ROOT}"
 WORKDIR="$(pwd)"
-TASKCTL="${TASKCTL}"
 INTERVAL="${AGENT_POLL_INTERVAL:-$DEFAULT_INTERVAL}"
 RUN_ONCE=0
 
@@ -172,6 +211,8 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+"$TASKCTL" ensure-agent "$AGENT" >/dev/null
 
 mkdir -p "$ROOT/runtime/logs/$AGENT" "$ROOT/runtime/pids"
 log "worker started (interval=${INTERVAL}s, once=$RUN_ONCE)"

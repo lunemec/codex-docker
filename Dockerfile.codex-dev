@@ -52,14 +52,28 @@ RUN pipx install uv \
 
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
-RUN npm install -g @openai/codex \
+RUN npm install -g @openai/codex @ralph-orchestrator/ralph-cli \
   && mv /usr/local/bin/codex /usr/local/bin/codex-real
+
+COPY scripts/taskctl.sh scripts/agent_worker.sh scripts/agents_ctl.sh /opt/codex-baseline/scripts/
+COPY coordination /opt/codex-baseline/coordination
+COPY container/codex-init-workspace.sh /usr/local/bin/codex-init-workspace
+COPY container/codex-entrypoint.sh /usr/local/bin/codex-entrypoint
+
+RUN chmod +x /opt/codex-baseline/scripts/taskctl.sh \
+  /opt/codex-baseline/scripts/agent_worker.sh \
+  /opt/codex-baseline/scripts/agents_ctl.sh \
+  /usr/local/bin/codex-init-workspace \
+  /usr/local/bin/codex-entrypoint \
+  && rm -rf /opt/codex-baseline/coordination/runtime \
+  && mkdir -p /opt/codex-baseline/coordination/runtime/logs /opt/codex-baseline/coordination/runtime/pids
 
 RUN set -eux; \
   node --version; npm --version; pnpm --version; \
   python3 --version; pip3 --version; uv --version; poetry --version; \
   go version; rustc --version; cargo --version; \
-  rg --version; fd --version; jq --version; yq --version
+  rg --version; fd --version; jq --version; yq --version; \
+  ralph --version
 
 # Default: fully automatic, no sandbox/approvals (for isolated container use only)
 RUN cat >/usr/local/bin/codex <<'EOF'
@@ -72,5 +86,6 @@ exec /usr/local/bin/codex-real \
 EOF
 RUN chmod +x /usr/local/bin/codex
 
+ENTRYPOINT ["/usr/local/bin/codex-entrypoint"]
 WORKDIR /workspace
 CMD ["bash"]
