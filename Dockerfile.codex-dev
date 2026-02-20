@@ -55,14 +55,12 @@ RUN corepack enable && corepack prepare pnpm@latest --activate
 RUN npm install -g @openai/codex @ralph-orchestrator/ralph-cli \
   && mv /usr/local/bin/codex /usr/local/bin/codex-real
 
-COPY scripts/taskctl.sh scripts/agent_worker.sh scripts/agents_ctl.sh /opt/codex-baseline/scripts/
+COPY scripts/*.sh /opt/codex-baseline/scripts/
 COPY coordination /opt/codex-baseline/coordination
 COPY container/codex-init-workspace.sh /usr/local/bin/codex-init-workspace
 COPY container/codex-entrypoint.sh /usr/local/bin/codex-entrypoint
 
-RUN chmod +x /opt/codex-baseline/scripts/taskctl.sh \
-  /opt/codex-baseline/scripts/agent_worker.sh \
-  /opt/codex-baseline/scripts/agents_ctl.sh \
+RUN chmod +x /opt/codex-baseline/scripts/*.sh \
   /usr/local/bin/codex-init-workspace \
   /usr/local/bin/codex-entrypoint \
   && rm -rf /opt/codex-baseline/coordination/runtime \

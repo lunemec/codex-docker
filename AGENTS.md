@@ -34,11 +34,14 @@ After any edit to `Dockerfile.codex-dev`, run:
 - Use `--no-install-recommends` for apt installs.
 - Clean apt lists to reduce layer size.
 - Keep PATH behavior working in both non-login and login shells.
+- Keep all `scripts/*.sh` baked into `/opt/codex-baseline/scripts/` in `Dockerfile.codex-dev`; mounted `/workspace` may not contain project scripts until bootstrap.
+- Prefer wildcard script bake-in (`COPY scripts/*.sh /opt/codex-baseline/scripts/` plus `chmod +x /opt/codex-baseline/scripts/*.sh`) so newly added scripts are included automatically.
+- Keep startup MOTD listing all image-baked scripts from `/opt/codex-baseline/scripts/` using absolute paths.
 - Update `CHANGELOG.md` whenever behavior, tooling, or verification expectations change.
 
 ## Local Multi-Agent Workflow
 - Create/initialize skill agents with `scripts/taskctl.sh ensure-agent <agent>`.
-- Repair missing coordination assets from older runs with `scripts/coordination_repair.sh`.
+- Repair missing coordination assets from older runs with `/opt/codex-baseline/scripts/coordination_repair.sh`.
 - For task-aware prompt tuning, run `scripts/taskctl.sh ensure-agent <agent> --task <TASK_ID|TASK_FILE>` (auto-refreshes unfit role prompts).
 - Create tasks using `scripts/taskctl.sh create <TASK_ID> <TITLE> --to <owner> --from <creator> --priority <N>`.
 - Delegate downstream work using `scripts/taskctl.sh delegate <from> <to> <TASK_ID> <TITLE> --priority <N> --parent <TASK_ID>`.
