@@ -6,7 +6,7 @@ TASKCTL="${AGENT_TASKCTL:-scripts/taskctl.sh}"
 DEFAULT_INTERVAL=30
 REASONING_XHIGH_AGENTS="${AGENT_XHIGH_AGENTS:-pm coordinator architect}"
 REASONING_XHIGH_EFFORT="${AGENT_PLANNER_REASONING_EFFORT:-xhigh}"
-REASONING_DEFAULT_EFFORT="${AGENT_DEFAULT_REASONING_EFFORT:-null}"
+REASONING_DEFAULT_EFFORT="${AGENT_DEFAULT_REASONING_EFFORT:-none}"
 
 abs_path() {
   local path="$1"
@@ -57,9 +57,9 @@ Environment overrides:
   AGENT_POLL_INTERVAL     default: 30
   AGENT_XHIGH_AGENTS      default: "pm coordinator architect"
   AGENT_PLANNER_REASONING_EFFORT
-                          default: xhigh (supports: default|null|none|minimal|low|medium|high|xhigh)
+                          default: xhigh (supports: default|null|none|minimal|low|medium|high|xhigh; null aliases to none)
   AGENT_DEFAULT_REASONING_EFFORT
-                          default: null (alias: default; Codex model default reasoning)
+                          default: none (aliases: default|null)
   AGENT_EXEC_CMD          optional custom command; bypasses built-in reasoning policy
   AGENT_TASKCTL           default: scripts/taskctl.sh
 USAGE
@@ -80,7 +80,7 @@ log() {
 is_valid_reasoning_effort() {
   local effort="$1"
   case "$effort" in
-    null|none|minimal|low|medium|high|xhigh) return 0 ;;
+    none|minimal|low|medium|high|xhigh) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -91,7 +91,8 @@ normalize_reasoning_effort() {
 
   case "$effort" in
     ""|default|null)
-      printf 'null'
+      # Runtime does not accept model_reasoning_effort=null, so map legacy aliases safely.
+      printf 'none'
       return 0
       ;;
   esac
@@ -104,12 +105,12 @@ validate_reasoning_config() {
   local normalized_xhigh normalized_default
 
   if ! normalized_xhigh="$(normalize_reasoning_effort "$REASONING_XHIGH_EFFORT")"; then
-    echo "invalid AGENT_PLANNER_REASONING_EFFORT: $REASONING_XHIGH_EFFORT (expected default|null|none|minimal|low|medium|high|xhigh)" >&2
+    echo "invalid AGENT_PLANNER_REASONING_EFFORT: $REASONING_XHIGH_EFFORT (expected default|none|minimal|low|medium|high|xhigh; alias: null->none)" >&2
     exit 1
   fi
 
   if ! normalized_default="$(normalize_reasoning_effort "$REASONING_DEFAULT_EFFORT")"; then
-    echo "invalid AGENT_DEFAULT_REASONING_EFFORT: $REASONING_DEFAULT_EFFORT (expected default|null|none|minimal|low|medium|high|xhigh)" >&2
+    echo "invalid AGENT_DEFAULT_REASONING_EFFORT: $REASONING_DEFAULT_EFFORT (expected default|none|minimal|low|medium|high|xhigh; alias: null->none)" >&2
     exit 1
   fi
 
@@ -137,19 +138,12 @@ run_default_exec_cmd() {
   local prompt_file="$1"
   local log_file="$2"
   local reasoning_effort="$3"
-  local reasoning_config
-
-  if [[ "$reasoning_effort" == "null" ]]; then
-    reasoning_config='model_reasoning_effort=null'
-  else
-    reasoning_config="model_reasoning_effort=\"$reasoning_effort\""
-  fi
 
   codex exec \
     --dangerously-bypass-approvals-and-sandbox \
     --skip-git-repo-check \
     -C "$WORKDIR" \
-    -c "$reasoning_config" \
+    -c "model_reasoning_effort=\"$reasoning_effort\"" \
     - <"$prompt_file" >"$log_file" 2>&1
 }
 
@@ -157,6 +151,39 @@ field_value() {
   local file="$1"
   local key="$2"
   sed -n "s/^${key}: //p" "$file" | head -n1
+}
+
+in_progress_task_path() {
+  local task_id="$1"
+  printf '%s/in_progress/%s/%s.md' "$ROOT" "$AGENT" "$task_id"
+}
+
+find_task_in_state() {
+  local state="$1"
+  local task_id="$2"
+  local dir="$ROOT/$state/$AGENT"
+
+  [[ -d "$dir" ]] || return 0
+  find "$dir" -type f -name "${task_id}.md" | sort | head -n1
+}
+
+task_terminal_state() {
+  local task_id="$1"
+  local done_file blocked_file
+
+  done_file="$(find_task_in_state done "$task_id")"
+  if [[ -n "$done_file" ]]; then
+    printf 'done:%s' "$done_file"
+    return 0
+  fi
+
+  blocked_file="$(find_task_in_state blocked "$task_id")"
+  if [[ -n "$blocked_file" ]]; then
+    printf 'blocked:%s' "$blocked_file"
+    return 0
+  fi
+
+  return 1
 }
 
 first_in_progress_task() {
@@ -228,12 +255,44 @@ run_task() {
 
   rm -f "$prompt_file"
 
+  local in_progress_file
+  in_progress_file="$(in_progress_task_path "$task_id")"
+
   if [[ $rc -eq 0 ]]; then
-    "$TASKCTL" done "$AGENT" "$task_id" "Completed by worker; log: $log_file" >/dev/null
-    log "completed $task_id (log: $log_file)"
+    if [[ -f "$in_progress_file" ]]; then
+      if "$TASKCTL" done "$AGENT" "$task_id" "Completed by worker; log: $log_file" >/dev/null; then
+        log "completed $task_id (log: $log_file)"
+      else
+        local terminal_state
+        terminal_state="$(task_terminal_state "$task_id" || true)"
+        if [[ -n "$terminal_state" ]]; then
+          log "completed $task_id (already transitioned: $terminal_state, log: $log_file)"
+        else
+          log "completed $task_id but done transition failed (log: $log_file)"
+        fi
+      fi
+    else
+      local terminal_state
+      terminal_state="$(task_terminal_state "$task_id" || true)"
+      if [[ -n "$terminal_state" ]]; then
+        log "completed $task_id (already transitioned: $terminal_state, log: $log_file)"
+      else
+        log "completed $task_id but task is no longer in progress (log: $log_file)"
+      fi
+    fi
   else
-    "$TASKCTL" block "$AGENT" "$task_id" "worker command failed (exit=$rc); see $log_file" >/dev/null || true
-    log "blocked $task_id (exit=$rc, log: $log_file)"
+    if [[ -f "$in_progress_file" ]]; then
+      "$TASKCTL" block "$AGENT" "$task_id" "worker command failed (exit=$rc); see $log_file" >/dev/null || true
+      log "blocked $task_id (exit=$rc, log: $log_file)"
+    else
+      local terminal_state
+      terminal_state="$(task_terminal_state "$task_id" || true)"
+      if [[ -n "$terminal_state" ]]; then
+        log "task $task_id already transitioned after worker failure (state=$terminal_state, exit=$rc, log: $log_file)"
+      else
+        log "worker failed for $task_id (exit=$rc, log: $log_file); task no longer in progress, transition skipped"
+      fi
+    fi
   fi
 }
 

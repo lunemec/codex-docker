@@ -106,7 +106,7 @@ Specialist software execution standard (TDD, required for code tasks):
 
 Reasoning policy note:
 - Planner roles (`pm`, `coordinator`, `architect`) are configured to run with `xhigh` reasoning in workers.
-- Other specialist workers use model-default reasoning.
+- Other specialist workers default to `none` reasoning effort unless overridden.
 
 Communication style:
 - Concise, operational, and decision-oriented.

@@ -470,6 +470,54 @@ render_delegation_lines() {
   echo "- If blocked by ambiguity or missing dependency, stop and report blocker to creator agent."
 }
 
+coordinator_handover_path() {
+  printf '%s/reports/coordinator/HANDOVER.md' "$ROOT"
+}
+
+ensure_coordinator_handover() {
+  local agent="$1"
+  [[ "$agent" == "coordinator" ]] || return 0
+
+  local handover_file
+  handover_file="$(coordinator_handover_path)"
+  [[ -f "$handover_file" ]] && return 0
+
+  cat >"$handover_file" <<EOF
+# Coordinator Handover
+
+Last updated: $(now)
+
+## Current Objective
+- User objective:
+- Parent task:
+
+## Active Plan
+- Current phase:
+- In-progress tasks:
+
+## Delegation Status
+- Waiting on:
+- Recently completed:
+
+## Decisions and Constraints
+- Key decisions:
+- Constraints:
+
+## Risks and Blockers
+- Active blockers:
+- Mitigations:
+
+## Next Actions
+1. Capture the next coordinator action before ending the session.
+
+## Resume Checklist
+1. Read this handover first.
+2. Check current queues with \`scripts/taskctl.sh list coordinator\`.
+3. Resume from \`## Next Actions\`.
+4. Update this file after meaningful plan/delegation changes and before completing or blocking a task.
+EOF
+}
+
 generate_role_prompt() {
   local agent="$1"
   local role_file="$2"
@@ -511,6 +559,17 @@ Execution rules:
 - If blocked by dependency or ambiguity, stop immediately and report via \`scripts/taskctl.sh block $agent <TASK_ID> "reason"\`.
 EOF
 
+  if [[ "$agent" == "coordinator" ]]; then
+    local handover_file
+    handover_file="$(coordinator_handover_path)"
+    cat >>"$role_file" <<EOF
+- Handover continuity: maintain \`$handover_file\` as the persistent coordinator state file.
+- At startup, read \`$handover_file\` first and resume work from its \`## Next Actions\`.
+- Update \`$handover_file\` after meaningful plan or delegation changes.
+- Update \`$handover_file\` before completing (\`scripts/taskctl.sh done coordinator <TASK_ID>\`) or before blocking (\`scripts/taskctl.sh block coordinator <TASK_ID> "reason"\`) a task.
+EOF
+  fi
+
   render_verification_lines "$tags" >>"$role_file"
 
   cat >>"$role_file" <<'EOF'
@@ -546,6 +605,8 @@ ensure_agent_scaffold() {
     "$ROOT/runtime/logs/$agent" \
     "$ROOT/runtime/pids" \
     "$ROOT/roles"
+
+  ensure_coordinator_handover "$agent"
 
   local role_file="$ROOT/roles/$agent.md"
 

@@ -10,6 +10,7 @@ This repository defines a Codex-focused developer Docker image (`Dockerfile.code
 - `scripts/taskctl.sh`: helper CLI for local task transitions.
 - `scripts/agent_worker.sh`: polling worker loop for specialist execution.
 - `scripts/agents_ctl.sh`: start/stop/status for background specialist workers.
+- `scripts/coordination_repair.sh`: backfill helper for missing coordination files/prompts and core lane scaffolding.
 - `scripts/project_container.sh`: host-side launcher for per-project Docker workspaces mounted at `/workspace`.
 - `container/codex-init-workspace.sh`: image bootstrap script that seeds baseline coordination files into `/workspace`.
 - `container/codex-entrypoint.sh`: image entrypoint that prints startup MOTD with quick commands.
@@ -37,6 +38,7 @@ After any edit to `Dockerfile.codex-dev`, run:
 
 ## Local Multi-Agent Workflow
 - Create/initialize skill agents with `scripts/taskctl.sh ensure-agent <agent>`.
+- Repair missing coordination assets from older runs with `scripts/coordination_repair.sh`.
 - For task-aware prompt tuning, run `scripts/taskctl.sh ensure-agent <agent> --task <TASK_ID|TASK_FILE>` (auto-refreshes unfit role prompts).
 - Create tasks using `scripts/taskctl.sh create <TASK_ID> <TITLE> --to <owner> --from <creator> --priority <N>`.
 - Delegate downstream work using `scripts/taskctl.sh delegate <from> <to> <TASK_ID> <TITLE> --priority <N> --parent <TASK_ID>`.
@@ -46,7 +48,7 @@ After any edit to `Dockerfile.codex-dev`, run:
 - Blocking automatically moves the task to `coordination/blocked/<agent>/<NNN>/` and creates a priority `000` blocker report task for the creator agent.
 - Run continuous background workers with `scripts/agents_ctl.sh start` and monitor with `scripts/agents_ctl.sh status`.
 - For execution environments that reap detached jobs between terminal calls, use one-shot parallel workers with `scripts/agents_ctl.sh once`.
-- Worker reasoning defaults: `pm`/`coordinator`/`architect` run with `xhigh`; other agents run with model-default reasoning. Customize with `AGENT_XHIGH_AGENTS`, `AGENT_PLANNER_REASONING_EFFORT`, and `AGENT_DEFAULT_REASONING_EFFORT` (supports `default` alias).
+- Worker reasoning defaults: `pm`/`coordinator`/`architect` run with `xhigh`; other agents default to `none` reasoning effort. Customize with `AGENT_XHIGH_AGENTS`, `AGENT_PLANNER_REASONING_EFFORT`, and `AGENT_DEFAULT_REASONING_EFFORT` (`default`/`null` aliases normalize to `none`).
 - Use `coordination/prompts/TOP_LEVEL_AGENT_PROMPT.md` for a reusable top-level orchestrator startup prompt; launch with `codex "$(cat /workspace/coordination/prompts/TOP_LEVEL_AGENT_PROMPT.md)"`.
 - Coordination scripts enforce Docker-only execution and require `/workspace`-scoped paths for roots/worker/taskctl scripts.
 

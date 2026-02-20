@@ -152,8 +152,15 @@ This command seeds from `/opt/codex-baseline` into:
 - `/workspace/scripts`
 - `/workspace/coordination`
 
+If older runs left partial coordination state (missing prompts/folders), run:
+
+```bash
+scripts/coordination_repair.sh
+```
+
 For interactive shell sessions, container startup prints a short MOTD with quick commands for:
 - workspace bootstrap (`codex-init-workspace`)
+- coordination repair (`scripts/coordination_repair.sh`)
 - coordination workers (`scripts/agents_ctl.sh start`)
 - `ralph`
 - `codex`
@@ -236,7 +243,7 @@ Worker logs and runtime files:
 Notes:
 - `scripts/agents_ctl.sh status` now cleans stale PID files automatically.
 - In environments that reap detached background jobs between separate shell invocations, prefer `scripts/agents_ctl.sh once ...` for deterministic execution.
-- Worker reasoning policy defaults to `xhigh` for planner/orchestrator roles (`pm`, `coordinator`, `architect`) and model-default reasoning for other agents; override with `AGENT_XHIGH_AGENTS`, `AGENT_PLANNER_REASONING_EFFORT`, and `AGENT_DEFAULT_REASONING_EFFORT` if needed.
+- Worker reasoning policy defaults to `xhigh` for planner/orchestrator roles (`pm`, `coordinator`, `architect`) and `none` for other agents; override with `AGENT_XHIGH_AGENTS`, `AGENT_PLANNER_REASONING_EFFORT`, and `AGENT_DEFAULT_REASONING_EFFORT` if needed (`default`/`null` aliases normalize to `none`).
 
 ## Safety Guards
 

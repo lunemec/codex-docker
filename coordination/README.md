@@ -105,7 +105,7 @@ scripts/agents_ctl.sh stop
 Worker behavior:
 - Polls and claims from `inbox/<agent>/<priority>/`.
 - Executes with `coordination/roles/<agent>.md` + task prompt.
-- Applies reasoning policy by agent role: `pm`/`coordinator`/`architect` default to `xhigh`; other agents use model-default reasoning.
+- Applies reasoning policy by agent role: `pm`/`coordinator`/`architect` default to `xhigh`; other agents default to `none` reasoning effort (`default`/`null` aliases normalize to `none`).
 - Runs `ensure-agent --task` before execution to refresh role guidance when task context changes.
 - On success, moves task to `done`.
 - On failure, moves task to `blocked` and triggers blocker report to creator.

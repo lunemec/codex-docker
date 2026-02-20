@@ -22,6 +22,9 @@ Quick commands:
   codex-init-workspace --workspace /workspace
     Seed /workspace/scripts and /workspace/coordination from the image baseline.
 
+  scripts/coordination_repair.sh
+    Backfill missing coordination folders/prompts and ensure core agent lanes.
+
   scripts/agents_ctl.sh start
     Start background coordination workers after bootstrap.
 
