@@ -30,6 +30,9 @@ Quick commands:
 
   codex
     Launch Codex CLI (Docker-guarded wrapper).
+
+  codex "$(cat /workspace/coordination/prompts/TOP_LEVEL_AGENT_PROMPT.md)"
+    Launch Codex preloaded with the top-level pm/coordinator prompt.
 MOTD
 }
 

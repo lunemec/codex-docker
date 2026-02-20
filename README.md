@@ -172,6 +172,11 @@ Queue layout:
 Priority model:
 - Lower numeric priority is more urgent (`000` is highest).
 
+Top-level orchestrator prompt:
+- Prompt file: `coordination/prompts/TOP_LEVEL_AGENT_PROMPT.md`
+- Auto-launch Codex with it:
+  - `codex "$(cat /workspace/coordination/prompts/TOP_LEVEL_AGENT_PROMPT.md)"`
+
 ### Core Task Commands
 
 ```bash
@@ -231,6 +236,7 @@ Worker logs and runtime files:
 Notes:
 - `scripts/agents_ctl.sh status` now cleans stale PID files automatically.
 - In environments that reap detached background jobs between separate shell invocations, prefer `scripts/agents_ctl.sh once ...` for deterministic execution.
+- Worker reasoning policy defaults to `xhigh` for planner/orchestrator roles (`pm`, `coordinator`, `architect`) and model-default reasoning for other agents; override with `AGENT_XHIGH_AGENTS`, `AGENT_PLANNER_REASONING_EFFORT`, and `AGENT_DEFAULT_REASONING_EFFORT` if needed.
 
 ## Safety Guards
 

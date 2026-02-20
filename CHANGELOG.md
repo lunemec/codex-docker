@@ -7,6 +7,7 @@ All notable changes to this project are documented in this file.
 - Local background specialist worker system with `scripts/agent_worker.sh` and `scripts/agents_ctl.sh`.
 - Role prompt files for `db`, `be`, `fe`, and `review` agents in `coordination/roles/`.
 - Coordinator documentation for one-chat operation with background task execution.
+- Reusable top-level orchestrator startup prompt at `coordination/prompts/TOP_LEVEL_AGENT_PROMPT.md`.
 - Dynamic skill-agent orchestration support with priority queue folders (`coordination/inbox/<agent>/<NNN>/`).
 - Blocker escalation path that auto-creates creator-facing blocker report tasks.
 - New default role prompts for `pm`, `designer`, and `architect`.
@@ -19,6 +20,13 @@ All notable changes to this project are documented in this file.
 - `AGENTS.md` now documents background agent orchestration commands and files.
 - `scripts/taskctl.sh` now supports dynamic agents, numeric priorities, layered delegation, and creator/owner task metadata.
 - `scripts/agent_worker.sh` now validates dynamic role files and integrates with the updated task lifecycle.
+- `scripts/agent_worker.sh` now applies per-agent reasoning effort: planner roles (`pm`, `coordinator`, `architect` by default) run with `xhigh`, while other agents run with model-default reasoning (`model_reasoning_effort=null`).
+- `scripts/agent_worker.sh` now treats `AGENT_*_REASONING_EFFORT=default` as model-default reasoning (`null`) to avoid startup failures from that common alias.
+- `README.md` and `AGENTS.md` now document the planner/orchestrator reasoning policy and corresponding worker environment overrides.
+- Startup MOTD now includes a one-command Codex launch that preloads the top-level orchestrator prompt.
+- `coordination/prompts/TOP_LEVEL_AGENT_PROMPT.md` now enforces a PM-style plan loop (deep clarification, specialist delegation cycles, aggregation, blocker-first handling, and explicit next-step checkpoints).
+- `coordination/prompts/TOP_LEVEL_AGENT_PROMPT.md` now requires TDD red-green-blue workflow evidence for software specialist tasks unless explicitly waived by the user.
+- `coordination/prompts/TOP_LEVEL_AGENT_PROMPT.md` now requires top-level delegation to define clear per-task success gates where applicable, with mandatory explicit gates for software tasks.
 - `scripts/agents_ctl.sh` now discovers agents from role files instead of a hardcoded list.
 - Coordination docs, examples, and task templates now describe multi-layer PM-driven delegation.
 - Orchestration script path overrides (`TASK_ROOT_DIR`, `AGENT_ROOT_DIR`, `AGENT_TASKCTL`, `AGENT_WORKER_SCRIPT`) are now constrained to `/workspace`.

@@ -33,6 +33,11 @@ This gives every sub-agent a stop-and-escalate path.
 ## Commands
 Use `scripts/taskctl.sh`:
 
+Top-level prompt bootstrap:
+- Prompt file: `coordination/prompts/TOP_LEVEL_AGENT_PROMPT.md`
+- Launch Codex with the prompt:
+  - `codex "$(cat /workspace/coordination/prompts/TOP_LEVEL_AGENT_PROMPT.md)"`
+
 Safety guard:
 - Orchestration scripts must run inside Docker and from `/workspace`.
 - `TASK_ROOT_DIR`, `AGENT_ROOT_DIR`, `AGENT_TASKCTL`, and `AGENT_WORKER_SCRIPT` are restricted to paths under `/workspace`.
@@ -100,6 +105,7 @@ scripts/agents_ctl.sh stop
 Worker behavior:
 - Polls and claims from `inbox/<agent>/<priority>/`.
 - Executes with `coordination/roles/<agent>.md` + task prompt.
+- Applies reasoning policy by agent role: `pm`/`coordinator`/`architect` default to `xhigh`; other agents use model-default reasoning.
 - Runs `ensure-agent --task` before execution to refresh role guidance when task context changes.
 - On success, moves task to `done`.
 - On failure, moves task to `blocked` and triggers blocker report to creator.
