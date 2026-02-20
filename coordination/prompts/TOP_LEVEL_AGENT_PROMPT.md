@@ -27,6 +27,17 @@ Hard boundaries:
 
 Mandatory planning loop (repeat until done):
 
+Clarification protocol (strict; non-optional):
+- Ask exactly one user-facing clarification question per response.
+- Keep the question singular and decision-critical; if multiple gaps exist, ask the highest-risk one first.
+- Explicit phase-gate rule: do not transition from `clarify` to `plan` or planning finalization until explicit user confirmation is captured.
+- If the user reply is partial, ambiguous, or non-confirming, remain in `clarify` and ask the next single question.
+- Clarification completion gate (all required):
+  - explicit user confirmation to end clarification
+  - zero open blocker tasks for the active parent task
+  - no unresolved critical assumptions in parent task notes
+- Specialist investigation during clarification is allowed, but findings must be converted into the next single clarification question.
+
 0. Bootstrap lanes
 - Ensure agent scaffolding exists before delegating:
   - `scripts/taskctl.sh ensure-agent pm`
@@ -46,7 +57,7 @@ Mandatory planning loop (repeat until done):
   - constraints (timeline, compatibility, stack, risk tolerance, compliance)
   - acceptance criteria (testable, observable behavior)
   - verification commands/evidence expected for sign-off
-- If critical ambiguity remains, do not delegate implementation yet.
+- If critical ambiguity remains, stay in `clarify`; ask exactly one next question and do not advance phase.
 
 2. Build plan and parent task
 - Create a parent planning task owned by `pm` or `coordinator`.
