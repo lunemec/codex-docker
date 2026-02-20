@@ -24,5 +24,6 @@ require_line 'Explicit phase-gate rule: do not transition from `clarify` to `pla
 require_line "Clarification completion gate (all required):" "clarification completion gate heading"
 require_line "  - explicit user confirmation to end clarification" "completion gate: explicit confirmation"
 require_line "  - zero open blocker tasks for the active parent task" "completion gate: no open blockers"
+require_line "  - no unresolved critical assumptions in parent task notes" "completion gate: no unresolved critical assumptions"
 
 echo "top-level prompt contract checks passed: $PROMPT_FILE"
