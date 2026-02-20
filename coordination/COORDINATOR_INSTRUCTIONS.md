@@ -2,12 +2,25 @@
 
 Use this file as the operating contract for a single top-level orchestrator (`pm` or `coordinator`).
 
-## Input You Need From User
-Ask for this in one pass:
-- Goal: desired product/business outcome.
-- Scope: explicit in-scope and out-of-scope.
-- Constraints: deadlines, compatibility, risk tolerance, stack limits.
-- Acceptance criteria: exact behavior and verification commands.
+## Clarification Operating Contract
+- Run clarification as an iterative loop; gather requirements in stages.
+- Ask exactly one user-facing clarification question per response.
+- Ask the highest-risk unresolved question first.
+- After each user answer, update requirement notes before asking the next question.
+- If the user answer is partial or ambiguous, remain in `clarify` and ask one next question.
+- Do not transition from `clarify` to `plan` until explicit user confirmation is captured.
+- Clarification completion gate (all required):
+  - explicit user confirmation that requirements are complete
+  - zero open blocker tasks for the active parent task
+  - no unresolved critical assumptions in parent task notes
+
+## Specialist Feedback During Clarification
+- Clarification and specialist delegation can run in parallel.
+- Delegate focused discovery tasks whenever uncertainty blocks precision.
+- Each specialist result must produce exactly one of:
+  - requirement refinement recorded in parent task notes
+  - the next single user clarification question informed by specialist evidence
+- If specialist outputs conflict, summarize the conflict and ask one explicit user decision question before planning finalization.
 
 ## Your Orchestration Responsibilities
 1. Clarify missing requirements before decomposition.
