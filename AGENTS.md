@@ -30,6 +30,7 @@ After any edit to `Dockerfile.codex-dev`, run:
 
 ## Change Guidelines
 - Keep the Codex wrapper behavior intact (`/usr/local/bin/codex` invoking `codex-real` with Docker guard).
+- Always tag the runtime image as `codex-dev:toolbelt`; do not introduce alternate tags unless explicitly requested by the user.
 - Prefer official toolchain installs for Go/Rust unless explicitly directed otherwise.
 - Use `--no-install-recommends` for apt installs.
 - Clean apt lists to reduce layer size.
@@ -37,6 +38,7 @@ After any edit to `Dockerfile.codex-dev`, run:
 - Keep all `scripts/*.sh` baked into `/opt/codex-baseline/scripts/` in `Dockerfile.codex-dev`; mounted `/workspace` may not contain project scripts until bootstrap.
 - Prefer wildcard script bake-in (`COPY scripts/*.sh /opt/codex-baseline/scripts/` plus `chmod +x /opt/codex-baseline/scripts/*.sh`) so newly added scripts are included automatically.
 - Keep startup MOTD listing all image-baked scripts from `/opt/codex-baseline/scripts/` using absolute paths.
+- After making project changes, update `README.md` to reflect the current behavior and usage.
 - Update `CHANGELOG.md` whenever behavior, tooling, or verification expectations change.
 
 ## Local Multi-Agent Workflow

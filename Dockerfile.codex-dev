@@ -52,7 +52,7 @@ RUN pipx install uv \
 
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
-RUN npm install -g @openai/codex @ralph-orchestrator/ralph-cli \
+RUN npm install -g @openai/codex @ralph-orchestrator/ralph-cli @googleworkspace/cli \
   && mv /usr/local/bin/codex /usr/local/bin/codex-real
 
 COPY scripts/*.sh /opt/codex-baseline/scripts/

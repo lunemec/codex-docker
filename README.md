@@ -38,13 +38,15 @@ On the host machine:
 docker build -f Dockerfile.codex-dev -t codex-dev:toolbelt .
 ```
 
-2. Run an interactive container with your current repository, local Codex credentials, and optional host Docker access:
+2. Run an interactive container with your current repository, ephemeral Codex state, mounted auth/config inputs, and optional host Docker access:
 
 ```bash
 docker run --rm -it \
   -v "$PWD":/workspace \
   -w /workspace \
-  -v "$HOME/.codex:/root/.codex" \
+  --tmpfs /root/.codex:rw,nosuid,nodev,size=512m \
+  -v "$HOME/.codex/auth.json:/run/secrets/codex-auth.json:ro" \
+  -v "$HOME/.codex/config.toml:/run/secrets/codex-config.toml:ro" \
   -v /var/run/docker.sock:/var/run/docker.sock \
   codex-dev:toolbelt
 ```
@@ -54,39 +56,49 @@ Command breakdown:
 - `-it`: keep STDIN open and allocate a TTY for interactive shell use.
 - `-v "$PWD":/workspace`: mount your current host directory into the container.
 - `-w /workspace`: start the shell in `/workspace`.
-- `-v "$HOME/.codex:/root/.codex"`: reuse your host Codex login/config inside the container.
+- `--tmpfs /root/.codex:...`: keep Codex runtime state ephemeral.
+- `-v "$HOME/.codex/auth.json:/run/secrets/codex-auth.json:ro"`: provide OAuth/API auth material without mounting the full host `~/.codex`.
+- `-v "$HOME/.codex/config.toml:/run/secrets/codex-config.toml:ro"`: provide Codex config defaults without mounting full host state.
 - `-v /var/run/docker.sock:/var/run/docker.sock`: let containerized tools talk to the host Docker daemon.
 - `codex-dev:toolbelt`: image name to run.
 
 Common variants:
-- Without local Codex login mount (you will authenticate inside the container each time):
-
-```bash
-docker run --rm -it \
-  -v "$PWD":/workspace \
-  -w /workspace \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  codex-dev:toolbelt
-```
-
 - Without Docker socket mount (container cannot control host Docker):
 
 ```bash
 docker run --rm -it \
   -v "$PWD":/workspace \
   -w /workspace \
-  -v "$HOME/.codex:/root/.codex" \
+  --tmpfs /root/.codex:rw,nosuid,nodev,size=512m \
+  -v "$HOME/.codex/auth.json:/run/secrets/codex-auth.json:ro" \
+  -v "$HOME/.codex/config.toml:/run/secrets/codex-config.toml:ro" \
   codex-dev:toolbelt
 ```
 
-- Without local Codex mount and without Docker socket (fully isolated session):
+- With API-key auth and no host Codex mounts:
 
 ```bash
 docker run --rm -it \
   -v "$PWD":/workspace \
   -w /workspace \
+  --tmpfs /root/.codex:rw,nosuid,nodev,size=512m \
+  -e OPENAI_API_KEY \
+  -v /var/run/docker.sock:/var/run/docker.sock \
   codex-dev:toolbelt
 ```
+
+- Fully isolated session (no Docker socket and no host Codex mounts):
+
+```bash
+docker run --rm -it \
+  -v "$PWD":/workspace \
+  -w /workspace \
+  --tmpfs /root/.codex:rw,nosuid,nodev,size=512m \
+  -e OPENAI_API_KEY \
+  codex-dev:toolbelt
+```
+
+If single-file mounts are unreliable in your Docker runtime, mount a temporary directory that only contains `auth.json` and `config.toml`, then point `CODEX_AUTH_JSON_SRC` and `CODEX_CONFIG_TOML_SRC` at those files.
 
 3. Verify core tooling:
 
