@@ -52,7 +52,7 @@ RUN pipx install uv \
 
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
-RUN npm install -g @openai/codex @ralph-orchestrator/ralph-cli @googleworkspace/cli \
+RUN npm install -g @openai/codex @ralph-orchestrator/ralph-cli @googleworkspace/cli openclaw \
   && mv /usr/local/bin/codex /usr/local/bin/codex-real
 
 COPY scripts/*.sh /opt/codex-baseline/scripts/
@@ -71,6 +71,7 @@ RUN set -eux; \
   python3 --version; pip3 --version; uv --version; poetry --version; \
   go version; rustc --version; cargo --version; \
   rg --version; fd --version; jq --version; yq --version; \
+  openclaw --version; \
   ralph --version
 
 # Default: fully automatic, no sandbox/approvals (for isolated container use only)

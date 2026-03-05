@@ -18,6 +18,7 @@ Installed toolchains and CLIs include:
 - Go (official tarball install)
 - Rust (`rustup`, `cargo`, `rustc`)
 - Dev/system tools: `git`, `docker`, `rg`, `fd`, `jq`, `yq`, `tmux`, `shellcheck`, `shfmt`, and more
+- Workspace CLIs: `ralph`, `openclaw`, and `@googleworkspace/cli`
 - `codex` wrapper and `codex-real`
 
 The `codex` wrapper is preserved as:
@@ -103,7 +104,7 @@ If single-file mounts are unreliable in your Docker runtime, mount a temporary d
 3. Verify core tooling:
 
 ```bash
-command -v node npm pnpm python3 pip3 uv poetry go rustc cargo rg fd jq yq codex codex-real
+command -v node npm pnpm python3 pip3 uv poetry go rustc cargo rg fd jq yq openclaw codex codex-real
 ```
 
 ## Recommended Host Workflow (Any Project Path)
@@ -171,11 +172,12 @@ scripts/coordination_repair.sh
 ```
 
 For interactive shell sessions, container startup prints a short MOTD with quick commands for:
+- most-used CLIs first (`codex`, `ralph`, `openclaw`, `codex-init-workspace`)
 - workspace bootstrap (`codex-init-workspace`)
 - coordination repair (`scripts/coordination_repair.sh`)
 - coordination workers (`scripts/agents_ctl.sh start`)
-- `ralph`
-- `codex`
+- top-level orchestrator launch command
+- grouped, colorized sections with image-baked script listings by absolute path (`/opt/codex-baseline/scripts/*.sh`)
 
 ## Multi-Agent Coordination
 
@@ -282,7 +284,7 @@ docker build -f Dockerfile.codex-dev -t codex-dev:toolbelt .
 2. Check tool presence:
 
 ```bash
-docker run --rm codex-dev:toolbelt bash -lc 'command -v node npm pnpm python3 pip3 uv poetry go rustc cargo rg fd jq yq codex codex-real'
+docker run --rm codex-dev:toolbelt bash -lc 'command -v node npm pnpm python3 pip3 uv poetry go rustc cargo rg fd jq yq openclaw codex codex-real'
 ```
 
 3. Runtime smoke checks:

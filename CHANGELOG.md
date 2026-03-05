@@ -5,6 +5,7 @@ All notable changes to this project are documented in this file.
 ## [Unreleased]
 ### Added
 - Global npm install for `@googleworkspace/cli` in the development image.
+- Global npm install for `openclaw` in the development image.
 - Local background specialist worker system with `scripts/agent_worker.sh` and `scripts/agents_ctl.sh`.
 - Role prompt files for `db`, `be`, `fe`, and `review` agents in `coordination/roles/`.
 - Coordinator documentation for one-chat operation with background task execution.
@@ -34,7 +35,7 @@ All notable changes to this project are documented in this file.
 - `scripts/agent_worker.sh` now normalizes `AGENT_*_REASONING_EFFORT=default` and legacy `null` inputs to `none` to avoid config parse failures.
 - `scripts/agent_worker.sh` now guards task transitions so one-shot workers do not fail when a task already self-transitioned out of `in_progress` (for example when an agent calls `taskctl done` directly).
 - `README.md` and `AGENTS.md` now document the planner/orchestrator reasoning policy and corresponding worker environment overrides.
-- Startup MOTD now includes quick commands for workspace repair via `scripts/coordination_repair.sh` and a one-command Codex launch that preloads the top-level orchestrator prompt.
+- Startup MOTD now presents grouped/colorized sections with most-used commands first (`codex`, `ralph`, `openclaw`, `codex-init-workspace`), plus a dynamic absolute-path listing of all image-baked scripts under `/opt/codex-baseline/scripts/`.
 - `coordination/prompts/TOP_LEVEL_AGENT_PROMPT.md` now enforces a PM-style plan loop (deep clarification, specialist delegation cycles, aggregation, blocker-first handling, and explicit next-step checkpoints).
 - `coordination/prompts/TOP_LEVEL_AGENT_PROMPT.md` now requires TDD red-green-blue workflow evidence for software specialist tasks unless explicitly waived by the user.
 - `coordination/prompts/TOP_LEVEL_AGENT_PROMPT.md` now requires top-level delegation to define clear per-task success gates where applicable, with mandatory explicit gates for software tasks.
