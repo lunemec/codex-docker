@@ -84,6 +84,7 @@ ensure_coordination_dirs() {
     "$croot/roles" \
     "$croot/prompts" \
     "$croot/templates" \
+    "$croot/benchmark_profiles" \
     "$croot/examples" \
     "$croot/runtime/logs" \
     "$croot/runtime/pids" \

@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 ### Added
+- Benchmark profile pack for vault-sync prompt scoring and gate evaluation at `coordination/benchmark_profiles/vault_sync_prompt_v1.json`.
+- Benchmark helper templates: `coordination/templates/BENCHMARK_REQUIREMENT_CHECKLIST.md`, `BENCHMARK_GATE_CHECKLIST.md`, and `BENCHMARK_SCORE_TABLE.md`.
+- New `taskctl` benchmark commands: `benchmark-verify`, `benchmark-score`, and `benchmark-closeout-check`.
+- `scripts/verify_benchmark_contract.sh` smoke verifier for benchmark metadata validation, scorecard generation, and closeout gate behavior.
 - Global npm install for `@googleworkspace/cli` in the development image.
 - Global npm install for `openclaw` in the development image.
 - Google Cloud CLI (`gcloud`) and Kubernetes CLIs (`kubectl`, `kubectx`, `kubens`) in the development image.
@@ -31,6 +35,12 @@ All notable changes to this project are documented in this file.
 - Host-side selective mount launcher `scripts/toolbelt.sh` with opt-in Docker socket support (`--docker`) and path-to-`/workspace/<basename>` mapping.
 
 ### Changed
+- `coordination/templates/TASK_TEMPLATE.md` now includes benchmark metadata defaults (`benchmark_profile`, `gate_targets`, `scorecard_artifact`) and stricter Result evidence guidance (`Requirement Statuses`, `Command` + `Exit` + `Log`, gate and category score sections for benchmark tasks).
+- `scripts/taskctl.sh verify-done` now enforces stricter strict-phase evidence (`requirement_ids`, per-requirement status rows, and `Log:` entries) and triggers benchmark evidence checks when a benchmark profile is configured.
+- `coordination/prompts/TOP_LEVEL_AGENT_PROMPT.md` and `coordination/COORDINATOR_INSTRUCTIONS.md` now enforce benchmark-first release rules, including conservative evidence handling, independent critical command reruns in review, and hard closeout gate (`score >= 80` + all gates pass).
+- `scripts/verify_top_level_prompt_contract.sh` and `scripts/verify_coordinator_instructions_contract.sh` now assert benchmark closeout and independent rerun clauses.
+- `scripts/verify_orchestrator_clarification_suite.sh` now includes benchmark contract validation.
+- `coordination/README.md` and top-level `README.md` now document benchmark task metadata and benchmark scoring/closeout commands.
 - `AGENTS.md` now documents background agent orchestration commands and files.
 - `AGENTS.md` now enforces a fixed runtime image tag (`codex-dev:toolbelt`) and requires `README.md` updates for project changes.
 - `scripts/taskctl.sh` now supports dynamic agents, numeric priorities, layered delegation, and creator/owner task metadata.
@@ -66,6 +76,7 @@ All notable changes to this project are documented in this file.
 - `README.md` container run guidance now defaults to `--tmpfs /root/.codex` plus minimal read-only auth/config file mounts and removes full host `~/.codex` mount recommendations.
 
 ### Verified
+- `scripts/verify_benchmark_contract.sh` passes, covering profile-driven benchmark evidence validation, scorecard generation, and strict closeout gate checks.
 - `scripts/verify_orchestrator_clarification_suite.sh` passes, covering clarification gating, specialist blocker routing, task lock lifecycle/conflict handling, worker heartbeat/release behavior, per-agent reasoning isolation, and template metadata persistence.
 
 ## [0.1.0] - 2026-02-18

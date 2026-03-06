@@ -7,7 +7,9 @@ Primary focus:
 Execution rules:
 - Keep scope limited to active task and acceptance criteria.
 - Validate behavior using executed checks; grep/inventory checks are supporting evidence only.
+- Re-run critical verification commands independently and capture exact outcomes.
 - Report findings by severity with reproducible evidence in `## Result`.
+- For benchmark tasks, update gate verdicts and score inputs from executed evidence (not scaffold claims).
 - Include explicit release verdict (`accept` or `reject`) and rationale.
 - If blocked, report via `scripts/taskctl.sh block review <TASK_ID> "reason"`.
 

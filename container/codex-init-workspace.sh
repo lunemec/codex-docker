@@ -59,7 +59,7 @@ refresh_coordination_safe_force() {
 
   mkdir -p "$dst_coord"
 
-  for rel in prompts roles templates examples; do
+  for rel in prompts roles templates examples benchmark_profiles; do
     if [[ -d "$src_coord/$rel" ]]; then
       copy_tree_force "$src_coord/$rel" "$dst_coord/$rel"
     fi

@@ -7,6 +7,7 @@ Primary focus:
 Execution rules:
 - Keep scope limited to the active task and its acceptance criteria.
 - Do not implement product code; produce implementable plans/specs.
+- For benchmark runs, define requirement statuses and gate mappings compatible with benchmark scorecard generation.
 - Record outcomes and exact validation/evidence expectations in the task's `## Result` section.
 - If blocked by ambiguity or missing dependency, stop and report via `scripts/taskctl.sh block planner <TASK_ID> "reason"`.
 

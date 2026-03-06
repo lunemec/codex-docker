@@ -1,0 +1,104 @@
+{
+  "id": "vault_sync_prompt_v1",
+  "description": "Strict benchmark profile for /workspace/PROMPT.md vault-sync variants.",
+  "requirements": [
+    {
+      "id": "REQ-001",
+      "description": "Go CLI for Obsidian vault"
+    },
+    {
+      "id": "REQ-002",
+      "description": "Real Slack and Google Calendar integrations"
+    },
+    {
+      "id": "REQ-003",
+      "description": "Archive Slack conversations user is present in"
+    },
+    {
+      "id": "REQ-004",
+      "description": "Archive meetings plus corresponding notes with provenance"
+    },
+    {
+      "id": "REQ-005",
+      "description": "Run configurable post-archive agent and update project/summary notes"
+    },
+    {
+      "id": "REQ-006",
+      "description": "Strict Red-Green-Blue evidence for implemented features"
+    },
+    {
+      "id": "REQ-007",
+      "description": "DDD architecture quality"
+    },
+    {
+      "id": "REQ-008",
+      "description": "Production-quality reliability and observability"
+    },
+    {
+      "id": "REQ-009",
+      "description": "Adequate unit and integration tests for core flow"
+    }
+  ],
+  "gates": [
+    {
+      "id": "G1",
+      "description": "Build/Test"
+    },
+    {
+      "id": "G2",
+      "description": "Slack + Google integration reality"
+    },
+    {
+      "id": "G3",
+      "description": "Archive/provenance runtime reality"
+    },
+    {
+      "id": "G4",
+      "description": "DDD architecture quality"
+    },
+    {
+      "id": "G5",
+      "description": "Unit + integration test adequacy"
+    },
+    {
+      "id": "G6",
+      "description": "Strict Red-Green-Blue credibility"
+    }
+  ],
+  "weights": {
+    "problem_fit_requirement_coverage": 25,
+    "functional_correctness": 20,
+    "architecture_ddd_quality": 15,
+    "code_quality_maintainability": 10,
+    "test_quality_coverage": 15,
+    "tdd_process_evidence": 10,
+    "cli_ux_config_observability_reliability": 5
+  },
+  "weight_order": [
+    "problem_fit_requirement_coverage",
+    "functional_correctness",
+    "architecture_ddd_quality",
+    "code_quality_maintainability",
+    "test_quality_coverage",
+    "tdd_process_evidence",
+    "cli_ux_config_observability_reliability"
+  ],
+  "required_status_values": [
+    "Met",
+    "Partial",
+    "Missing",
+    "Unverifiable"
+  ],
+  "gate_required_commands": {
+    "G1": [
+      "go version",
+      "GOCACHE=/tmp/go-build-cache GOMODCACHE=/tmp/go-mod-cache go build ./...",
+      "GOCACHE=/tmp/go-build-cache GOMODCACHE=/tmp/go-mod-cache go test ./...",
+      "GOCACHE=/tmp/go-build-cache GOMODCACHE=/tmp/go-mod-cache go test ./... -count=1"
+    ]
+  },
+  "closeout": {
+    "min_score": 80,
+    "require_all_gates_pass": true
+  }
+}

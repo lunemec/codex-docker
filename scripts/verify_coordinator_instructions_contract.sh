@@ -37,7 +37,15 @@ require_line "Maintain a requirement matrix mapping each requirement to:" "requi
 require_line "  - implementation owner task(s)" "matrix owner mapping"
 require_line "  - validation command(s)" "matrix command mapping"
 require_line "  - evidence artifact(s)" "matrix artifact mapping"
+require_line '- For benchmark runs, use requirement statuses `Met | Partial | Missing | Unverifiable`.' "benchmark requirement status set"
+require_line "- Benchmark-scored tasks must also declare:" "benchmark metadata heading"
+require_line '  - `benchmark_profile`' "benchmark_profile metadata"
+require_line '  - `gate_targets`' "gate_targets metadata"
+require_line '  - `scorecard_artifact`' "scorecard_artifact metadata"
 require_line "Grep/file inventory is allowed as supporting evidence only, never as sole acceptance proof." "review evidence strictness"
+require_line "- Re-run critical commands independently; do not rely only on implementer-transcribed command output." "independent rerun requirement"
+require_line '- For benchmark runs, close only when `taskctl benchmark-closeout-check <agent> <TASK_ID>` passes.' "benchmark closeout check contract"
+require_line "- Benchmark hard gate: score >= 80 and all gates G1..G6 pass." "benchmark score+gates hard gate"
 
 if rg -qi "one[ -]pass" "$INSTRUCTIONS_FILE"; then
   echo "contradictory one-pass wording detected in $INSTRUCTIONS_FILE" >&2

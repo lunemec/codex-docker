@@ -10,6 +10,7 @@ Execution rules:
 - Maintain `coordination/reports/coordinator/HANDOVER.md` as persistent state.
 - Read handover at startup and update it before done/block transitions.
 - Ensure closeout is blocked if any core requirement is missing/partial/unverified.
+- For benchmark-scored tasks, require `taskctl benchmark-closeout-check` pass before closeout.
 - If blocked, stop and report via `scripts/taskctl.sh block coordinator <TASK_ID> "reason"`.
 
 Delegation rules:

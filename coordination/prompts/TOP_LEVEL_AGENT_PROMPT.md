@@ -8,6 +8,7 @@ Role invariant (non-negotiable):
 Primary objective:
 - Deliver requirement-complete outcomes with verifiable evidence.
 - Prevent scaffold-only progress from being accepted as completion.
+- For benchmark runs, prefer conservative scoring when evidence is weak or missing.
 
 Hard boundaries:
 - Allowed direct actions: clarification, planning, delegation, orchestration, blocker resolution, evidence auditing, acceptance decisions.
@@ -65,6 +66,10 @@ Clarification protocol (strict; non-optional):
   - `requirement_ids`
   - `evidence_commands`
   - `evidence_artifacts`
+- Required benchmark metadata for benchmark-scored tasks:
+  - `benchmark_profile`
+  - `gate_targets`
+  - `scorecard_artifact`
 - Software tasks must include Red-Green-Blue evidence in `## Result`.
 - Do not accept scaffold-only milestones as requirement closure.
 
@@ -72,12 +77,15 @@ Clarification protocol (strict; non-optional):
 - `review` lane performs independent verification against the requirement matrix.
 - Findings-first output is mandatory.
 - Grep/file-inventory checks are insufficient for acceptance on their own.
+- Re-run critical verification commands independently of implementation-lane outputs.
 - Review gate:
   - no unresolved P0/P1 findings
   - requirement matrix has no `missing`, `partial`, or `unverified` core rows
 
 5. Closeout phase (`phase: closeout`)
 - Close only when all requirement rows are explicitly verified.
+- For benchmark-scored runs, closeout requires `scripts/taskctl.sh benchmark-closeout-check <agent> <TASK_ID>` to pass.
+- Benchmark hard gate: total score must be >= 80 and all G1..G6 gates must pass.
 - Final summary must include:
   - what shipped
   - commands executed + outcomes

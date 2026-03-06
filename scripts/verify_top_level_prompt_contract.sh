@@ -30,5 +30,8 @@ require_line "  - no unresolved critical assumptions in parent task notes" "comp
 require_line "Required artifact: finalized requirement matrix with each requirement mapped to:" "requirement matrix contract"
 require_line "Do not accept scaffold-only milestones as requirement closure." "anti-scaffold closure rule"
 require_line '- requirement matrix has no `missing`, `partial`, or `unverified` core rows' "review gate matrix rule"
+require_line "Re-run critical verification commands independently of implementation-lane outputs." "independent command rerun requirement"
+require_line "Benchmark hard gate: total score must be >= 80 and all G1..G6 gates must pass." "benchmark hard gate"
+require_line 'For benchmark-scored runs, closeout requires `scripts/taskctl.sh benchmark-closeout-check <agent> <TASK_ID>` to pass.' "benchmark closeout check command"
 
 echo "top-level prompt contract checks passed: $PROMPT_FILE"

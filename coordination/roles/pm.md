@@ -8,6 +8,7 @@ Execution rules:
 - Keep scope limited to the active task and acceptance criteria.
 - Orchestrate delegation, sequencing, and blocker resolution; do not implement product code.
 - Ensure each software/review task includes `requirement_ids`, `evidence_commands`, and `evidence_artifacts`.
+- For benchmark tasks, also require `benchmark_profile`, `gate_targets`, and `scorecard_artifact`.
 - Record outcomes and verification state in task `## Result`.
 - If blocked, stop and report via `scripts/taskctl.sh block pm <TASK_ID> "reason"`.
 

@@ -62,7 +62,7 @@ Image baseline bootstrap:
 - The toolbelt image now carries a canonical coordination baseline under `/opt/codex-baseline`.
 - On container start, `codex-entrypoint` prints a MOTD with quick-start commands (bootstrap is opt-in).
 - Existing project files are not overwritten unless `codex-init-workspace --force` is used.
-- `--force` refreshes only baseline-managed paths: `/workspace/scripts/**` and `/workspace/coordination/{README.md,COORDINATOR_INSTRUCTIONS.md,prompts/**,roles/**,templates/**,examples/**}`.
+- `--force` refreshes only baseline-managed paths: `/workspace/scripts/**` and `/workspace/coordination/{README.md,COORDINATOR_INSTRUCTIONS.md,prompts/**,roles/**,templates/**,benchmark_profiles/**,examples/**}`.
 - Dynamic runtime/task state is preserved even with `--force`: `/workspace/coordination/{inbox,in_progress,done,blocked,reports,runtime,task_prompts}/**`.
 - You can also run bootstrap manually: `codex-init-workspace --workspace /workspace` (or `--force` for safe baseline refresh).
 
@@ -90,6 +90,9 @@ scripts/taskctl.sh delegate architect be TASK-1003 "Implement profile API" --pri
 # claim + transition
 scripts/taskctl.sh claim fe
 scripts/taskctl.sh verify-done fe TASK-1002
+scripts/taskctl.sh benchmark-verify coordinator TASK-2000
+scripts/taskctl.sh benchmark-score coordinator TASK-2000
+scripts/taskctl.sh benchmark-closeout-check coordinator TASK-2000
 scripts/taskctl.sh done fe TASK-1002 "UI delivered and tested"
 scripts/taskctl.sh block be TASK-1003 "Waiting on auth contract"
 
@@ -108,6 +111,20 @@ scripts/taskctl.sh list pm
   - `lock_scope: file`
   - `lock_policy: block_on_conflict`
 - Non-coding tasks may leave `intended_write_targets` empty.
+
+### Benchmark Metadata and Commands
+- Benchmark-scored tasks should declare:
+  - `benchmark_profile` (default profile: `coordination/benchmark_profiles/vault_sync_prompt_v1.json`)
+  - `gate_targets` (for example `['G1', 'G2', 'G3', 'G4', 'G5', 'G6']`)
+  - `scorecard_artifact` (for example `coordination/reports/coordinator/benchmark_scorecard.json`)
+- `scripts/taskctl.sh benchmark-verify <agent> <TASK_ID>` validates benchmark evidence structure.
+- `scripts/taskctl.sh benchmark-score <agent> <TASK_ID>` computes weighted score and writes:
+  - JSON scorecard at `scorecard_artifact` (or default)
+  - Markdown companion scorecard (`.md`)
+- `scripts/taskctl.sh benchmark-closeout-check <agent> <TASK_ID>` enforces benchmark release gate.
+- Benchmark hard gate defaults:
+  - total score `>= 80`
+  - all targeted gates marked `pass`
 
 ### Task-Local Prompt Sidecars
 - `taskctl create` and `taskctl delegate` auto-bootstrap:
@@ -188,6 +205,7 @@ Coverage includes:
 - coordinator instructions contract (iterative clarification loop + phase gates),
 - task template metadata persistence,
 - task done-verification contract,
+- benchmark contract (profile metadata enforcement, scorecard generation, closeout gate),
 - taskctl lock lifecycle and stale-reap audit behavior,
 - worker lock conflict/heartbeat/release behavior,
 - clarification workflow simulation for blocker routing and completion gating.
@@ -199,3 +217,4 @@ Coverage includes:
 4. Populate `requirement_ids`, `evidence_commands`, and `evidence_artifacts` for execute/review tasks.
 5. Resolve blocker report tasks before declaring clarification complete.
 6. Finalize closeout only when requirement matrix rows are fully verified.
+7. For benchmark runs, close only after `benchmark-closeout-check` passes.

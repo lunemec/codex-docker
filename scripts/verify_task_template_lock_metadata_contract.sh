@@ -55,6 +55,9 @@ require_line "phase: plan" "task phase default"
 require_line "requirement_ids: []" "requirement_ids default list"
 require_line "evidence_commands: []" "evidence_commands default list"
 require_line "evidence_artifacts: []" "evidence_artifacts default list"
+require_line "benchmark_profile: none" "benchmark_profile default"
+require_line "gate_targets: []" "gate_targets default list"
+require_line "scorecard_artifact: none" "scorecard_artifact default"
 
 template_frontmatter="$(mktemp)"
 smoke_root="$(mktemp -d /workspace/.task-template-lock-smoke.XXXXXX)"
@@ -69,6 +72,9 @@ assert_yaml_expr "$template_frontmatter" '.phase == "plan"' "phase defaults to p
 assert_yaml_expr "$template_frontmatter" '.requirement_ids | type == "array"' "requirement_ids is an array"
 assert_yaml_expr "$template_frontmatter" '.evidence_commands | type == "array"' "evidence_commands is an array"
 assert_yaml_expr "$template_frontmatter" '.evidence_artifacts | type == "array"' "evidence_artifacts is an array"
+assert_yaml_expr "$template_frontmatter" '.benchmark_profile == "none"' "benchmark_profile defaults to none"
+assert_yaml_expr "$template_frontmatter" '.gate_targets | type == "array"' "gate_targets is an array"
+assert_yaml_expr "$template_frontmatter" '.scorecard_artifact == "none"' "scorecard_artifact defaults to none"
 
 mkdir -p "$smoke_root/templates"
 cp "$TEMPLATE_FILE" "$smoke_root/templates/TASK_TEMPLATE.md"
@@ -93,5 +99,8 @@ assert_yaml_expr "$created_frontmatter" '.phase == "plan"' "created task persist
 assert_yaml_expr "$created_frontmatter" '.requirement_ids == []' "created task persists requirement_ids"
 assert_yaml_expr "$created_frontmatter" '.evidence_commands == []' "created task persists evidence_commands"
 assert_yaml_expr "$created_frontmatter" '.evidence_artifacts == []' "created task persists evidence_artifacts"
+assert_yaml_expr "$created_frontmatter" '.benchmark_profile == "none"' "created task persists benchmark_profile"
+assert_yaml_expr "$created_frontmatter" '.gate_targets == []' "created task persists gate_targets"
+assert_yaml_expr "$created_frontmatter" '.scorecard_artifact == "none"' "created task persists scorecard_artifact"
 
 echo "task template lock metadata contract checks passed: $TEMPLATE_FILE"

@@ -32,10 +32,13 @@ inject_result_block() {
     BEGIN { in_result = 0; emitted = 0 }
     /^## Result$/ {
       print
+      print "Requirement Statuses:"
+      print "- REQ-001: Met"
       print "Acceptance Criteria:"
       print "- PASS: Criterion 1"
       print "Command: go test ./pkg/service -count=1"
       print "Exit: 0"
+      print "Log: /tmp/verify-done.log"
       print "Observed: PASS"
       in_result = 1
       emitted = 1
@@ -51,10 +54,13 @@ inject_result_block() {
     END {
       if (emitted == 0) {
         print "## Result"
+        print "Requirement Statuses:"
+        print "- REQ-001: Met"
         print "Acceptance Criteria:"
         print "- PASS: Criterion 1"
         print "Command: go test ./pkg/service -count=1"
         print "Exit: 0"
+        print "Log: /tmp/verify-done.log"
         print "Observed: PASS"
       }
     }

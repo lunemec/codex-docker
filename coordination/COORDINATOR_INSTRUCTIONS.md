@@ -38,6 +38,7 @@ Do not skip a phase gate.
   - implementation owner task(s)
   - validation command(s)
   - evidence artifact(s)
+- For benchmark runs, use requirement statuses `Met | Partial | Missing | Unverifiable`.
 - Exit gate: no unresolved high-impact design decisions.
 
 ## Execute Contract
@@ -47,17 +48,24 @@ Do not skip a phase gate.
   - `requirement_ids`
   - `evidence_commands`
   - `evidence_artifacts`
+- Benchmark-scored tasks must also declare:
+  - `benchmark_profile`
+  - `gate_targets`
+  - `scorecard_artifact`
 - Do not accept scaffold-only or placeholder outcomes.
 
 ## Review Contract
 - Independent review must validate behavior against the requirement matrix.
 - Grep/file inventory is allowed as supporting evidence only, never as sole acceptance proof.
+- Re-run critical commands independently; do not rely only on implementer-transcribed command output.
 - Exit gate:
   - no unresolved P0/P1 findings
   - no core requirement row marked missing/partial/unverified
 
 ## Closeout Contract
 - Close the loop only when acceptance criteria are verifiably met across the requirement matrix.
+- For benchmark runs, close only when `taskctl benchmark-closeout-check <agent> <TASK_ID>` passes.
+- Benchmark hard gate: score >= 80 and all gates G1..G6 pass.
 - Final output must summarize shipped behavior, executed validations, and residual risks.
 
 ## Delegation Rules
@@ -85,6 +93,6 @@ Do not skip a phase gate.
 
 ## Baseline Repair Safety
 - `scripts/coordination_repair.sh` performs a safe baseline refresh by invoking `codex-init-workspace --force`.
-- Safe refresh scope: `/workspace/scripts/**` and `/workspace/coordination/{README.md,COORDINATOR_INSTRUCTIONS.md,prompts/**,roles/**,templates/**,examples/**}`.
+- Safe refresh scope: `/workspace/scripts/**` and `/workspace/coordination/{README.md,COORDINATOR_INSTRUCTIONS.md,prompts/**,roles/**,templates/**,benchmark_profiles/**,examples/**}`.
 - Preserved scope: `/workspace/coordination/{inbox,in_progress,done,blocked,reports,runtime,task_prompts}/**`.
 - This ensures active queues, history, runtime state, and task-local prompt sidecars are never clobbered during repair.

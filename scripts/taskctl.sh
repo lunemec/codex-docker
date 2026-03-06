@@ -3,6 +3,8 @@ set -euo pipefail
 
 ROOT="${TASK_ROOT_DIR:-coordination}"
 TEMPLATE="$ROOT/templates/TASK_TEMPLATE.md"
+DEFAULT_BENCHMARK_PROFILE_PATH="$ROOT/benchmark_profiles/vault_sync_prompt_v1.json"
+DEFAULT_BENCHMARK_SCORECARD_PATH="$ROOT/reports/coordinator/benchmark_scorecard.json"
 DEFAULT_OWNER_AGENT="${TASK_DEFAULT_OWNER:-pm}"
 DEFAULT_CREATOR_AGENT="${TASK_DEFAULT_CREATOR:-pm}"
 DEFAULT_PRIORITY="${TASK_DEFAULT_PRIORITY:-50}"
@@ -59,6 +61,9 @@ Usage:
   $0 assign <TASK_ID> <agent> [--coding-owner-lanes <agents>]
   $0 claim <agent> [--coding-owner-lanes <agents>]
   $0 verify-done <agent> <TASK_ID>
+  $0 benchmark-verify <agent> <TASK_ID> [--json]
+  $0 benchmark-score <agent> <TASK_ID>
+  $0 benchmark-closeout-check <agent> <TASK_ID>
   $0 done <agent> <TASK_ID> [NOTE]
   $0 block <agent> <TASK_ID> <REASON>
   $0 lock-acquire <TASK_ID> <owner_agent> <target>
@@ -78,6 +83,7 @@ Notes:
   - Coding-owner auto-target lanes default to "fe,be,db" (set TASK_CODING_OWNER_LANES; override once with --coding-owner-lanes).
   - Supported task phases: clarify, research, plan, execute, review, closeout.
   - done transitions run strict `verify-done` checks before moving tasks to done.
+  - benchmark-* commands enforce profile-driven gates/scores and write scorecard artifacts for benchmark reviews.
   - lock-clean-stale requires orchestrator actor identity via --actor or TASK_ACTOR_AGENT.
   - Default stale-lock reaper lanes are "pm coordinator" (override with TASK_LOCK_REAPER_AGENTS).
   - ensure-agent creates role prompts when missing; existing role prompts are stable unless --force is used.
@@ -1481,6 +1487,133 @@ task_yaml_array_values() {
   rm -f "$frontmatter_file"
 }
 
+task_yaml_scalar_value() {
+  local task_file="$1"
+  local field="$2"
+  require_command yq
+
+  local frontmatter_file
+  frontmatter_file="$(mktemp)"
+  extract_frontmatter_to_file "$task_file" "$frontmatter_file"
+
+  if [[ ! -s "$frontmatter_file" ]]; then
+    rm -f "$frontmatter_file"
+    echo "unable to extract task frontmatter: $task_file" >&2
+    return 1
+  fi
+
+  yq -r ".${field} // \"\"" "$frontmatter_file"
+  rm -f "$frontmatter_file"
+}
+
+task_has_benchmark_profile() {
+  local task_file="$1"
+  local raw
+  raw="$(task_yaml_scalar_value "$task_file" "benchmark_profile" 2>/dev/null || true)"
+  raw="$(printf '%s' "$raw" | sed -E "s/^'+|'+$//g")"
+
+  [[ -n "$raw" && "$raw" != "none" && "$raw" != "null" ]]
+}
+
+task_benchmark_profile_path() {
+  local task_file="$1"
+  local raw
+  raw="$(task_yaml_scalar_value "$task_file" "benchmark_profile" 2>/dev/null || true)"
+  raw="$(printf '%s' "$raw" | sed -E "s/^'+|'+$//g")"
+
+  if [[ -z "$raw" || "$raw" == "none" || "$raw" == "null" ]]; then
+    raw="$DEFAULT_BENCHMARK_PROFILE_PATH"
+  fi
+
+  local absolute root_candidate workspace_candidate
+  if [[ "$raw" == /* ]]; then
+    absolute="$(abs_path "$raw")"
+  else
+    root_candidate="$(abs_path "$ROOT/$raw")"
+    workspace_candidate="$(abs_path "/workspace/$raw")"
+
+    if [[ -e "$root_candidate" || -d "$(dirname "$root_candidate")" ]]; then
+      absolute="$root_candidate"
+    else
+      absolute="$workspace_candidate"
+    fi
+  fi
+
+  [[ "$absolute" == "/workspace" || "$absolute" == /workspace/* ]] || {
+    echo "benchmark profile path must resolve under /workspace: $raw" >&2
+    return 1
+  }
+
+  printf '%s' "$absolute"
+}
+
+task_scorecard_artifact_path() {
+  local task_file="$1"
+  local raw
+  raw="$(task_yaml_scalar_value "$task_file" "scorecard_artifact" 2>/dev/null || true)"
+  raw="$(printf '%s' "$raw" | sed -E "s/^'+|'+$//g")"
+
+  if [[ -z "$raw" || "$raw" == "none" || "$raw" == "null" ]]; then
+    raw="$DEFAULT_BENCHMARK_SCORECARD_PATH"
+  fi
+
+  local absolute root_candidate workspace_candidate
+  if [[ "$raw" == /* ]]; then
+    absolute="$(abs_path "$raw")"
+  else
+    root_candidate="$(abs_path "$ROOT/$raw")"
+    workspace_candidate="$(abs_path "/workspace/$raw")"
+
+    if [[ -e "$root_candidate" || -d "$(dirname "$root_candidate")" ]]; then
+      absolute="$root_candidate"
+    else
+      absolute="$workspace_candidate"
+    fi
+  fi
+
+  [[ "$absolute" == "/workspace" || "$absolute" == /workspace/* ]] || {
+    echo "scorecard artifact path must resolve under /workspace: $raw" >&2
+    return 1
+  }
+
+  printf '%s' "$absolute"
+}
+
+escape_ere() {
+  local value="$1"
+  printf '%s' "$value" | sed -E 's/[][(){}.^$*+?|\\/]/\\&/g'
+}
+
+extract_result_value_for_key() {
+  local result_body="$1"
+  local key="$2"
+  local value_regex="$3"
+  local escaped_key
+  escaped_key="$(escape_ere "$key")"
+
+  printf '%s\n' "$result_body" | sed -nE "s/^[[:space:]]*-[[:space:]]*${escaped_key}:[[:space:]]*(${value_regex})[[:space:]]*$/\\1/p" | head -n1
+}
+
+is_number_value() {
+  local value="$1"
+  [[ "$value" =~ ^[0-9]+([.][0-9]+)?$ ]]
+}
+
+number_greater_than() {
+  local lhs="$1"
+  local rhs="$2"
+  awk -v a="$lhs" -v b="$rhs" 'BEGIN { exit !(a > b) }'
+}
+
+json_array_from_values() {
+  if [[ "$#" -eq 0 ]]; then
+    printf '[]'
+    return 0
+  fi
+
+  printf '%s\n' "$@" | jq -R . | jq -cs .
+}
+
 task_phase_value() {
   local task_file="$1"
   require_command yq
@@ -1549,6 +1682,12 @@ verify_task_done_in_progress() {
     fi
   fi
 
+  local -a requirement_ids=()
+  while IFS= read -r item; do
+    [[ -n "$item" ]] || continue
+    requirement_ids+=("$item")
+  done < <(task_yaml_array_values "$task_file" "requirement_ids")
+
   local -a evidence_commands=()
   local -a evidence_artifacts=()
   while IFS= read -r item; do
@@ -1578,6 +1717,24 @@ verify_task_done_in_progress() {
   done
 
   if phase_requires_strict_done_evidence "$phase"; then
+    if (( ${#requirement_ids[@]} == 0 )); then
+      echo "verify-done failed: strict phase requires non-empty requirement_ids frontmatter" >&2
+      return 1
+    fi
+    if ! printf '%s' "$result_body" | grep -qi 'Requirement Statuses:'; then
+      echo "verify-done failed: strict phase requires \"Requirement Statuses:\" section in ## Result" >&2
+      return 1
+    fi
+
+    local requirement_id requirement_status
+    for requirement_id in "${requirement_ids[@]}"; do
+      requirement_status="$(extract_result_value_for_key "$result_body" "$requirement_id" 'Met|Partial|Missing|Unverifiable')"
+      if [[ -z "$requirement_status" ]]; then
+        echo "verify-done failed: requirement status missing/invalid for $requirement_id (expected Met|Partial|Missing|Unverifiable)" >&2
+        return 1
+      fi
+    done
+
     if ! printf '%s' "$result_body" | grep -qi 'Acceptance Criteria:'; then
       echo "verify-done failed: strict phase requires \"Acceptance Criteria:\" section in ## Result" >&2
       return 1
@@ -1590,9 +1747,462 @@ verify_task_done_in_progress() {
       echo "verify-done failed: strict phase requires at least one \"Exit:\" line in ## Result" >&2
       return 1
     fi
+    if ! printf '%s' "$result_body" | grep -qi 'Log:'; then
+      echo "verify-done failed: strict phase requires at least one \"Log:\" line in ## Result" >&2
+      return 1
+    fi
+  fi
+
+  if task_has_benchmark_profile "$task_file"; then
+    if ! benchmark_verify_task_file "$task_file" >/dev/null; then
+      echo "verify-done failed: benchmark evidence contract failed for task_id=$task_id" >&2
+      return 1
+    fi
   fi
 
   echo "verify-done passed: task_id=$task_id phase=$phase"
+}
+
+benchmark_verify_task_file() {
+  local task_file="$1"
+  local output_mode="${2:-text}"
+  require_command jq
+
+  [[ -f "$task_file" ]] || {
+    echo "benchmark-verify failed: task file not found: $task_file" >&2
+    return 1
+  }
+
+  local profile_file
+  profile_file="$(task_benchmark_profile_path "$task_file")"
+  [[ -f "$profile_file" ]] || {
+    echo "benchmark-verify failed: benchmark profile not found: $profile_file" >&2
+    return 1
+  }
+
+  if ! jq -e '.weights and .gates and .requirements' "$profile_file" >/dev/null 2>&1; then
+    echo "benchmark-verify failed: invalid benchmark profile schema: $profile_file" >&2
+    return 1
+  fi
+
+  local result_body
+  result_body="$(extract_task_section "$task_file" "Result")"
+
+  local -a requirement_ids=()
+  while IFS= read -r item; do
+    [[ -n "$item" ]] || continue
+    requirement_ids+=("$item")
+  done < <(task_yaml_array_values "$task_file" "requirement_ids")
+
+  local -a gate_targets=()
+  while IFS= read -r item; do
+    [[ -n "$item" ]] || continue
+    gate_targets+=("$item")
+  done < <(task_yaml_array_values "$task_file" "gate_targets")
+
+  local required_status_regex
+  required_status_regex="$(jq -r '.required_status_values // ["Met","Partial","Missing","Unverifiable"] | join("|")' "$profile_file")"
+  [[ -n "$required_status_regex" ]] || required_status_regex="Met|Partial|Missing|Unverifiable"
+
+  local findings_count=0
+  local missing_requirement_status_entries=0
+  local missing_gate_status_entries=0
+  local missing_required_command_evidence=0
+  local -a findings=()
+
+  if (( ${#requirement_ids[@]} == 0 )); then
+    findings+=("requirement_ids frontmatter is empty")
+    findings_count=$((findings_count + 1))
+  fi
+
+  if (( ${#gate_targets[@]} == 0 )); then
+    findings+=("gate_targets frontmatter is empty")
+    findings_count=$((findings_count + 1))
+  fi
+
+  local requirement_statuses_json='{}'
+  local requirement_id requirement_status
+  for requirement_id in "${requirement_ids[@]}"; do
+    if ! jq -e --arg id "$requirement_id" '.requirements[]? | select(.id == $id)' "$profile_file" >/dev/null 2>&1; then
+      findings+=("requirement id not present in profile: $requirement_id")
+      findings_count=$((findings_count + 1))
+    fi
+
+    requirement_status="$(extract_result_value_for_key "$result_body" "$requirement_id" "$required_status_regex")"
+    if [[ -z "$requirement_status" ]]; then
+      requirement_status="Unverifiable"
+      missing_requirement_status_entries=$((missing_requirement_status_entries + 1))
+      findings+=("missing requirement status in ## Result for $requirement_id")
+      findings_count=$((findings_count + 1))
+    fi
+
+    requirement_statuses_json="$(jq -cn \
+      --argjson base "$requirement_statuses_json" \
+      --arg requirement_id "$requirement_id" \
+      --arg status "$requirement_status" \
+      '$base + {($requirement_id): $status}')"
+  done
+
+  local gate_statuses_json='{}'
+  local gate_id gate_status
+  for gate_id in "${gate_targets[@]}"; do
+    if ! jq -e --arg id "$gate_id" '.gates[]? | select(.id == $id)' "$profile_file" >/dev/null 2>&1; then
+      findings+=("gate target not present in profile: $gate_id")
+      findings_count=$((findings_count + 1))
+    fi
+
+    gate_status="$(extract_result_value_for_key "$result_body" "$gate_id" 'pass|fail|PASS|FAIL')"
+    if [[ -z "$gate_status" ]]; then
+      gate_status="fail"
+      missing_gate_status_entries=$((missing_gate_status_entries + 1))
+      findings+=("missing gate status in ## Result for $gate_id")
+      findings_count=$((findings_count + 1))
+    fi
+    gate_status="$(printf '%s' "$gate_status" | tr '[:upper:]' '[:lower:]')"
+
+    gate_statuses_json="$(jq -cn \
+      --argjson base "$gate_statuses_json" \
+      --arg gate_id "$gate_id" \
+      --arg status "$gate_status" \
+      '$base + {($gate_id): $status}')"
+
+    local -a required_commands=()
+    while IFS= read -r cmd; do
+      [[ -n "$cmd" ]] || continue
+      required_commands+=("$cmd")
+    done < <(jq -r --arg gate "$gate_id" '.gate_required_commands[$gate][]? // empty' "$profile_file")
+
+    local required_cmd
+    for required_cmd in "${required_commands[@]}"; do
+      if ! printf '%s\n' "$result_body" | grep -Fq -- "Command: $required_cmd"; then
+        findings+=("missing required command evidence for $gate_id: $required_cmd")
+        findings_count=$((findings_count + 1))
+        missing_required_command_evidence=$((missing_required_command_evidence + 1))
+      fi
+    done
+  done
+
+  local requirement_ids_json gate_targets_json findings_json
+  requirement_ids_json="$(json_array_from_values "${requirement_ids[@]}")"
+  gate_targets_json="$(json_array_from_values "${gate_targets[@]}")"
+  findings_json="$(json_array_from_values "${findings[@]}")"
+
+  local data_valid=true
+  if (( findings_count > 0 )); then
+    data_valid=false
+  fi
+
+  local summary_json
+  summary_json="$(jq -cn \
+    --arg task_file "$task_file" \
+    --arg profile_file "$profile_file" \
+    --argjson requirement_ids "$requirement_ids_json" \
+    --argjson gate_targets "$gate_targets_json" \
+    --argjson requirement_statuses "$requirement_statuses_json" \
+    --argjson gate_statuses "$gate_statuses_json" \
+    --argjson findings "$findings_json" \
+    --argjson missing_requirement_status_entries "$missing_requirement_status_entries" \
+    --argjson missing_gate_status_entries "$missing_gate_status_entries" \
+    --argjson missing_required_command_evidence "$missing_required_command_evidence" \
+    --argjson findings_count "$findings_count" \
+    --argjson data_valid "$data_valid" \
+    '{
+      task_file: $task_file,
+      profile_file: $profile_file,
+      requirement_ids: $requirement_ids,
+      gate_targets: $gate_targets,
+      requirement_statuses: $requirement_statuses,
+      gate_statuses: $gate_statuses,
+      missing_requirement_status_entries: $missing_requirement_status_entries,
+      missing_gate_status_entries: $missing_gate_status_entries,
+      missing_required_command_evidence: $missing_required_command_evidence,
+      findings_count: $findings_count,
+      findings: $findings,
+      data_valid: $data_valid
+    }')"
+
+  if [[ "$output_mode" == "json" ]]; then
+    printf '%s\n' "$summary_json"
+  else
+    echo "benchmark-verify: task_file=$task_file"
+    echo "benchmark-verify: profile_file=$profile_file"
+    echo "benchmark-verify: requirement_ids=${#requirement_ids[@]} gate_targets=${#gate_targets[@]} findings=$findings_count"
+    if (( findings_count > 0 )); then
+      local finding
+      for finding in "${findings[@]}"; do
+        echo "benchmark-verify finding: $finding"
+      done
+    fi
+  fi
+
+  if (( findings_count > 0 )); then
+    return 1
+  fi
+  return 0
+}
+
+benchmark_score_task_file() {
+  local task_file="$1"
+  require_command jq
+
+  local verify_json
+  local verify_rc=0
+  if verify_json="$(benchmark_verify_task_file "$task_file" json)"; then
+    verify_rc=0
+  else
+    verify_rc=$?
+  fi
+
+  local profile_file
+  profile_file="$(printf '%s' "$verify_json" | jq -r '.profile_file')"
+  [[ -f "$profile_file" ]] || {
+    echo "benchmark-score failed: profile file missing: $profile_file" >&2
+    return 1
+  }
+
+  local result_body
+  result_body="$(extract_task_section "$task_file" "Result")"
+
+  local -a weight_order=()
+  while IFS= read -r category; do
+    [[ -n "$category" ]] || continue
+    weight_order+=("$category")
+  done < <(jq -r '.weight_order[]? // empty' "$profile_file")
+
+  if (( ${#weight_order[@]} == 0 )); then
+    while IFS= read -r category; do
+      [[ -n "$category" ]] || continue
+      weight_order+=("$category")
+    done < <(jq -r '.weights | keys[]' "$profile_file")
+  fi
+
+  local category_scores_json='{}'
+  local -a score_findings=()
+  local raw_total=0
+  local category category_score max_score
+  for category in "${weight_order[@]}"; do
+    max_score="$(jq -r --arg category "$category" '.weights[$category] // 0' "$profile_file")"
+    if ! is_number_value "$max_score"; then
+      score_findings+=("invalid max score in profile for category $category: $max_score")
+      max_score=0
+    fi
+
+    category_score="$(extract_result_value_for_key "$result_body" "$category" '[0-9]+([.][0-9]+)?')"
+    if [[ -z "$category_score" ]]; then
+      score_findings+=("missing category score in ## Result for $category; defaulting to 0")
+      category_score=0
+    fi
+
+    if ! is_number_value "$category_score"; then
+      score_findings+=("invalid numeric score for $category: $category_score; defaulting to 0")
+      category_score=0
+    fi
+
+    if number_greater_than "$category_score" "$max_score"; then
+      score_findings+=("category score for $category exceeded max ($category_score > $max_score); clamped to max")
+      category_score="$max_score"
+    fi
+
+    raw_total="$(awk -v total="$raw_total" -v value="$category_score" 'BEGIN { printf "%.2f", total + value }')"
+    category_scores_json="$(jq -cn \
+      --argjson base "$category_scores_json" \
+      --arg category "$category" \
+      --argjson score "$category_score" \
+      '$base + {($category): $score}')"
+  done
+
+  local unverifiable_count missing_requirement_count weak_evidence_count
+  unverifiable_count="$(printf '%s' "$verify_json" | jq -r '.requirement_statuses | to_entries | map(select(.value == "Unverifiable")) | length')"
+  missing_requirement_count="$(printf '%s' "$verify_json" | jq -r '.requirement_statuses | to_entries | map(select(.value == "Missing")) | length')"
+  weak_evidence_count="$(printf '%s' "$verify_json" | jq -r '.missing_requirement_status_entries + .missing_gate_status_entries + .missing_required_command_evidence')"
+
+  local conservative_penalty
+  conservative_penalty="$(awk -v u="$unverifiable_count" -v m="$missing_requirement_count" -v w="$weak_evidence_count" -v verify_rc="$verify_rc" '
+    BEGIN {
+      penalty = (u * 2) + (m * 1) + (w * 2);
+      if (verify_rc != 0) penalty += 5;
+      if (penalty > 30) penalty = 30;
+      printf "%.2f", penalty;
+    }')"
+
+  local final_total
+  final_total="$(awk -v raw="$raw_total" -v penalty="$conservative_penalty" '
+    BEGIN {
+      total = raw - penalty;
+      if (total < 0) total = 0;
+      printf "%.2f", total;
+    }')"
+
+  local min_score require_all_gates_pass all_target_gates_pass
+  min_score="$(jq -r '.closeout.min_score // 80' "$profile_file")"
+  require_all_gates_pass="$(jq -r '.closeout.require_all_gates_pass // true' "$profile_file")"
+  all_target_gates_pass="$(printf '%s' "$verify_json" | jq -r '.gate_statuses | to_entries | if length == 0 then false else all(.value == "pass") end')"
+
+  local score_threshold_met=false
+  if awk -v score="$final_total" -v min="$min_score" 'BEGIN { exit !(score >= min) }'; then
+    score_threshold_met=true
+  fi
+
+  local closeout_ready=true
+  if [[ "$score_threshold_met" != "true" ]]; then
+    closeout_ready=false
+  fi
+  if [[ "$require_all_gates_pass" == "true" && "$all_target_gates_pass" != "true" ]]; then
+    closeout_ready=false
+  fi
+  if [[ "$verify_rc" -ne 0 ]]; then
+    closeout_ready=false
+  fi
+
+  local score_findings_json verify_findings_json all_findings_json
+  score_findings_json="$(json_array_from_values "${score_findings[@]}")"
+  verify_findings_json="$(printf '%s' "$verify_json" | jq -c '.findings')"
+  all_findings_json="$(jq -cn --argjson verify_findings "$verify_findings_json" --argjson score_findings "$score_findings_json" '$verify_findings + $score_findings')"
+
+  local scorecard_json_path scorecard_md_path
+  scorecard_json_path="$(task_scorecard_artifact_path "$task_file")"
+  scorecard_md_path="${scorecard_json_path%.json}.md"
+  if [[ "$scorecard_md_path" == "$scorecard_json_path" ]]; then
+    scorecard_md_path="${scorecard_json_path}.md"
+  fi
+
+  mkdir -p "$(dirname "$scorecard_json_path")"
+  mkdir -p "$(dirname "$scorecard_md_path")"
+
+  local requirement_statuses_json gate_statuses_json gate_targets_json requirement_ids_json weights_json
+  requirement_statuses_json="$(printf '%s' "$verify_json" | jq -c '.requirement_statuses')"
+  gate_statuses_json="$(printf '%s' "$verify_json" | jq -c '.gate_statuses')"
+  gate_targets_json="$(printf '%s' "$verify_json" | jq -c '.gate_targets')"
+  requirement_ids_json="$(printf '%s' "$verify_json" | jq -c '.requirement_ids')"
+  weights_json="$(jq -c '.weights' "$profile_file")"
+
+  local scorecard_json
+  scorecard_json="$(jq -cn \
+    --arg generated_at "$(now)" \
+    --arg task_file "$task_file" \
+    --arg profile_file "$profile_file" \
+    --argjson requirement_ids "$requirement_ids_json" \
+    --argjson requirement_statuses "$requirement_statuses_json" \
+    --argjson gate_targets "$gate_targets_json" \
+    --argjson gate_statuses "$gate_statuses_json" \
+    --argjson weights "$weights_json" \
+    --argjson category_scores "$category_scores_json" \
+    --argjson raw_total "$raw_total" \
+    --argjson conservative_penalty "$conservative_penalty" \
+    --argjson final_total "$final_total" \
+    --argjson min_score "$min_score" \
+    --argjson require_all_gates_pass "$require_all_gates_pass" \
+    --argjson all_target_gates_pass "$all_target_gates_pass" \
+    --argjson score_threshold_met "$score_threshold_met" \
+    --argjson closeout_ready "$closeout_ready" \
+    --argjson findings "$all_findings_json" \
+    '{
+      generated_at: $generated_at,
+      task_file: $task_file,
+      profile_file: $profile_file,
+      requirement_ids: $requirement_ids,
+      requirement_statuses: $requirement_statuses,
+      gate_targets: $gate_targets,
+      gate_statuses: $gate_statuses,
+      weights: $weights,
+      category_scores: $category_scores,
+      raw_total: $raw_total,
+      conservative_penalty: $conservative_penalty,
+      final_total: $final_total,
+      findings: $findings,
+      closeout: {
+        min_score: $min_score,
+        require_all_gates_pass: $require_all_gates_pass,
+        all_target_gates_pass: $all_target_gates_pass,
+        score_threshold_met: $score_threshold_met,
+        ready: $closeout_ready
+      }
+    }')"
+
+  printf '%s\n' "$scorecard_json" >"$scorecard_json_path"
+
+  {
+    echo "# Benchmark Scorecard"
+    echo
+    echo "- generated_at: $(printf '%s' "$scorecard_json" | jq -r '.generated_at')"
+    echo "- task_file: $(printf '%s' "$scorecard_json" | jq -r '.task_file')"
+    echo "- profile_file: $(printf '%s' "$scorecard_json" | jq -r '.profile_file')"
+    echo "- raw_total: $(printf '%s' "$scorecard_json" | jq -r '.raw_total')"
+    echo "- conservative_penalty: $(printf '%s' "$scorecard_json" | jq -r '.conservative_penalty')"
+    echo "- final_total: $(printf '%s' "$scorecard_json" | jq -r '.final_total')"
+    echo "- closeout_ready: $(printf '%s' "$scorecard_json" | jq -r '.closeout.ready')"
+    echo
+    echo "## Category Scores"
+    echo
+    echo "| Category | Max | Score |"
+    echo "|---|---:|---:|"
+    for category in "${weight_order[@]}"; do
+      max_score="$(printf '%s' "$scorecard_json" | jq -r --arg category "$category" '.weights[$category] // 0')"
+      category_score="$(printf '%s' "$scorecard_json" | jq -r --arg category "$category" '.category_scores[$category] // 0')"
+      echo "| $category | $max_score | $category_score |"
+    done
+    echo
+    echo "## Gate Statuses"
+    echo
+    printf '%s' "$scorecard_json" | jq -r '.gate_statuses | to_entries[]? | "- \(.key): \(.value)"'
+    echo
+    echo "## Findings"
+    echo
+    printf '%s' "$scorecard_json" | jq -r '.findings[]? | "- " + .'
+  } >"$scorecard_md_path"
+
+  echo "benchmark-score: wrote scorecards json=$scorecard_json_path md=$scorecard_md_path final_total=$final_total closeout_ready=$closeout_ready"
+
+  return 0
+}
+
+benchmark_closeout_check_task_file() {
+  local task_file="$1"
+  require_command jq
+
+  benchmark_score_task_file "$task_file" >/dev/null
+
+  local scorecard_json_path
+  scorecard_json_path="$(task_scorecard_artifact_path "$task_file")"
+  [[ -f "$scorecard_json_path" ]] || {
+    echo "benchmark-closeout-check failed: scorecard not found: $scorecard_json_path" >&2
+    return 1
+  }
+
+  local ready final_total min_score all_target_gates_pass require_all_gates_pass
+  ready="$(jq -r '.closeout.ready' "$scorecard_json_path")"
+  final_total="$(jq -r '.final_total' "$scorecard_json_path")"
+  min_score="$(jq -r '.closeout.min_score' "$scorecard_json_path")"
+  all_target_gates_pass="$(jq -r '.closeout.all_target_gates_pass' "$scorecard_json_path")"
+  require_all_gates_pass="$(jq -r '.closeout.require_all_gates_pass' "$scorecard_json_path")"
+
+  if [[ "$ready" != "true" ]]; then
+    echo "benchmark-closeout-check failed: final_total=$final_total min_score=$min_score require_all_gates_pass=$require_all_gates_pass all_target_gates_pass=$all_target_gates_pass"
+    jq -r '.findings[]? | "finding: " + .' "$scorecard_json_path"
+    return 1
+  fi
+
+  echo "benchmark-closeout-check passed: final_total=$final_total min_score=$min_score all_target_gates_pass=$all_target_gates_pass"
+}
+
+resolve_task_for_benchmark_commands() {
+  local agent="$1"
+  local task_id="$2"
+  local in_progress_task="$ROOT/in_progress/$agent/${task_id}.md"
+  if [[ -f "$in_progress_task" ]]; then
+    printf '%s' "$in_progress_task"
+    return 0
+  fi
+
+  local existing
+  existing="$(find_existing_task "$task_id")"
+  if [[ -n "$existing" ]]; then
+    printf '%s' "$existing"
+    return 0
+  fi
+
+  echo "task not found for benchmark command: task_id=$task_id (agent=$agent)" >&2
+  return 1
 }
 
 create_task() {
@@ -1664,6 +2274,9 @@ create_task() {
   grep -qE '^requirement_ids:' "$out" || set_field "$out" "requirement_ids" "[]"
   grep -qE '^evidence_commands:' "$out" || set_field "$out" "evidence_commands" "[]"
   grep -qE '^evidence_artifacts:' "$out" || set_field "$out" "evidence_artifacts" "[]"
+  grep -qE '^benchmark_profile:' "$out" || set_field "$out" "benchmark_profile" "none"
+  grep -qE '^gate_targets:' "$out" || set_field "$out" "gate_targets" "[]"
+  grep -qE '^scorecard_artifact:' "$out" || set_field "$out" "scorecard_artifact" "none"
   set_field "$out" "created_at" "$(now)"
   set_field "$out" "updated_at" "$(now)"
 
@@ -2019,6 +2632,43 @@ main() {
     verify-done)
       [[ $# -ge 3 ]] || { usage; exit 1; }
       verify_task_done_in_progress "$2" "$3"
+      ;;
+    benchmark-verify)
+      [[ $# -ge 3 ]] || { usage; exit 1; }
+      local agent="$2"
+      local task_id="$3"
+      local output_mode="text"
+      shift 3
+
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --json)
+            output_mode="json"
+            shift
+            ;;
+          *)
+            echo "unknown arg: $1" >&2
+            usage
+            exit 1
+            ;;
+        esac
+      done
+
+      local benchmark_task_file
+      benchmark_task_file="$(resolve_task_for_benchmark_commands "$agent" "$task_id")" || exit 1
+      benchmark_verify_task_file "$benchmark_task_file" "$output_mode"
+      ;;
+    benchmark-score)
+      [[ $# -eq 3 ]] || { usage; exit 1; }
+      local benchmark_task_file
+      benchmark_task_file="$(resolve_task_for_benchmark_commands "$2" "$3")" || exit 1
+      benchmark_score_task_file "$benchmark_task_file"
+      ;;
+    benchmark-closeout-check)
+      [[ $# -eq 3 ]] || { usage; exit 1; }
+      local benchmark_task_file
+      benchmark_task_file="$(resolve_task_for_benchmark_commands "$2" "$3")" || exit 1
+      benchmark_closeout_check_task_file "$benchmark_task_file"
       ;;
     block)
       [[ $# -ge 4 ]] || { usage; exit 1; }

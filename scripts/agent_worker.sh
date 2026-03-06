@@ -375,10 +375,13 @@ Execution requirements:
 - Keep changes scoped to the task.
 - Run relevant checks/tests for touched areas.
 - Update the task file's "## Result" section with explicit evidence:
+  - `Requirement Statuses:` entries in format `- <requirement_id>: Met|Partial|Missing|Unverifiable`
   - `Acceptance Criteria:` with pass/fail status for scoped criteria
   - one or more `Command:` lines
   - corresponding `Exit:` lines
+  - corresponding `Log:` lines
   - concise observed output summary
+- For benchmark tasks, include `Gate Statuses:` entries and category score lines expected by task metadata/profile.
 - If blocked by dependency or ambiguity, clearly state blocker in the task file and exit non-zero.
 PROMPT
 

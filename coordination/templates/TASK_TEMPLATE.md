@@ -11,6 +11,9 @@ phase: plan
 requirement_ids: []
 evidence_commands: []
 evidence_artifacts: []
+benchmark_profile: none
+gate_targets: []
+scorecard_artifact: none
 intended_write_targets: []
 lock_scope: file
 lock_policy: block_on_conflict
@@ -37,5 +40,15 @@ List exact commands/tests that must pass.
 ## Result
 Agent fills this before moving the task to `done` or `blocked`.
 For `phase: execute|review|closeout`, include:
+- `Requirement Statuses:` entries in form `- <requirement_id>: Met|Partial|Missing|Unverifiable`.
 - `Acceptance Criteria:` with pass/fail status per criterion.
-- One or more `Command:` + `Exit:` evidence entries.
+- One or more `Command:` + `Exit:` + `Log:` evidence entries.
+- For benchmark tasks, include `Gate Statuses:` entries in form `- G1: pass|fail`.
+- For benchmark score tasks, include category lines:
+  - `- problem_fit_requirement_coverage: <score>`
+  - `- functional_correctness: <score>`
+  - `- architecture_ddd_quality: <score>`
+  - `- code_quality_maintainability: <score>`
+  - `- test_quality_coverage: <score>`
+  - `- tdd_process_evidence: <score>`
+  - `- cli_ux_config_observability_reliability: <score>`

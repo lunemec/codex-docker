@@ -239,6 +239,9 @@ scripts/taskctl.sh delegate pm designer TASK-1001 "Create UX spec" --priority 20
 # Claim / finish / block
 scripts/taskctl.sh claim designer
 scripts/taskctl.sh verify-done designer TASK-1001
+scripts/taskctl.sh benchmark-verify coordinator TASK-2000
+scripts/taskctl.sh benchmark-score coordinator TASK-2000
+scripts/taskctl.sh benchmark-closeout-check coordinator TASK-2000
 scripts/taskctl.sh done designer TASK-1001 "Delivered UX spec and validation notes"
 scripts/taskctl.sh block be TASK-1003 "Waiting on API contract clarification"
 

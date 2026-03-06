@@ -41,6 +41,7 @@ require_contains() {
 
 inject_result_evidence() {
   local task_file="$1"
+  sed -i "s|^requirement_ids:.*|requirement_ids: ['REQ-LOCK-001']|" "$task_file"
   local tmp
   tmp="$(mktemp)"
 
@@ -48,10 +49,13 @@ inject_result_evidence() {
     BEGIN { in_result = 0; emitted = 0 }
     /^## Result$/ {
       print
+      print "Requirement Statuses:"
+      print "- REQ-LOCK-001: Met"
       print "Acceptance Criteria:"
       print "- PASS: lock contract setup"
       print "Command: lock-contract-smoke"
       print "Exit: 0"
+      print "Log: /tmp/lock-contract-smoke.log"
       print "Observed: setup seeded"
       in_result = 1
       emitted = 1
@@ -67,10 +71,13 @@ inject_result_evidence() {
     END {
       if (emitted == 0) {
         print "## Result"
+        print "Requirement Statuses:"
+        print "- REQ-LOCK-001: Met"
         print "Acceptance Criteria:"
         print "- PASS: lock contract setup"
         print "Command: lock-contract-smoke"
         print "Exit: 0"
+        print "Log: /tmp/lock-contract-smoke.log"
         print "Observed: setup seeded"
       }
     }
