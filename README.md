@@ -4,7 +4,7 @@ Developer-focused Docker image and local coordination toolkit for Codex-driven s
 
 This repository provides:
 - `Dockerfile.codex-dev`: a reproducible dev image for Python, Node.js, Go, and Rust work.
-- `scripts/project_container.sh`: host-side launcher for project containers mounted at `/workspace`.
+- `scripts/toolbelt.sh`: host-side launcher for selective mounts into `/workspace/<basename>`.
 - `scripts/taskctl.sh`, `scripts/agent_worker.sh`, `scripts/agents_ctl.sh`: local multi-agent orchestration.
 - `container/codex-init-workspace.sh` and `container/codex-entrypoint.sh`: container startup bootstrap for coordination assets.
 
@@ -110,44 +110,52 @@ command -v node npm pnpm python3 pip3 uv poetry go rustc cargo \
   codex codex-real claude gemini cursor agent cursor-agent openclaw
 ```
 
-## Recommended Host Workflow (Any Project Path)
+## Selective Mount Workflow (Smaller Surface Area)
 
-Use `scripts/project_container.sh` from this repo to launch a container for any local project:
-
-```bash
-scripts/project_container.sh up /path/to/project
-```
-
-Common actions:
+Use `scripts/toolbelt.sh` when you want to mount only a few folders/files instead of an entire project tree.
 
 ```bash
-# Start or attach
-scripts/project_container.sh up /path/to/project
+# Mount current directory to /workspace
+scripts/toolbelt.sh
 
-# Start in background
-scripts/project_container.sh up /path/to/project --detach
+# Mount only selected paths under /workspace/<basename>
+scripts/toolbelt.sh ./directory1 ./directory2
 
-# Attach later
-scripts/project_container.sh attach /path/to/project
+# Add host Docker access only when needed
+scripts/toolbelt.sh --docker ../directory1 ../directory2
 
-# Check status
-scripts/project_container.sh status /path/to/project
-
-# Stop/remove
-scripts/project_container.sh down /path/to/project
+# Run a command instead of an interactive shell
+scripts/toolbelt.sh ./directory1 ./directory2 -- bash -lc 'ls -la /workspace'
 ```
+
+Behavior summary:
+- If no positional paths are provided, the current directory is mounted at `/workspace`.
+- Each positional path becomes one mount at `/workspace/<basename(path)>`.
+- Docker socket is opt-in via `--docker`.
+- `/root/.codex` is mounted as tmpfs (`512m` default).
+- `~/.codex/auth.json` and `~/.codex/config.toml` are mounted read-only automatically when present.
+- Path basenames must be unique per run (to avoid destination collisions).
 
 Useful options:
-- `--image IMAGE` (default: `codex-dev:toolbelt`)
-- `--name NAME`
-- `--shell SHELL` (default: `bash`)
-- `--no-docker-sock`
-- `--keep` (do not auto-remove container)
+- `--image IMAGE`
+- `--workdir DIR`
+- `--shell SHELL`
+- `--tmpfs-size SIZE`
+- `--keep`
 
-Environment overrides:
-- `CODEX_DEV_IMAGE`
-- `CODEX_DEV_NAME_PREFIX`
-- `CODEX_DEV_SHELL`
+Optional shell aliases:
+
+`~/.zshrc`:
+
+```bash
+alias toolbelt='/absolute/path/to/this/repo/scripts/toolbelt.sh'
+```
+
+`~/.bashrc`:
+
+```bash
+alias toolbelt='/absolute/path/to/this/repo/scripts/toolbelt.sh'
+```
 
 ## Workspace Bootstrap Behavior
 
@@ -206,6 +214,8 @@ Top-level orchestrator prompt:
 ```bash
 # Create or refresh agent scaffolding (queues + role file)
 scripts/taskctl.sh ensure-agent pm
+scripts/taskctl.sh ensure-agent researcher
+scripts/taskctl.sh ensure-agent planner
 scripts/taskctl.sh ensure-agent fe --task TASK-1002
 
 # Create a top-level task
@@ -216,6 +226,7 @@ scripts/taskctl.sh delegate pm designer TASK-1001 "Create UX spec" --priority 20
 
 # Claim / finish / block
 scripts/taskctl.sh claim designer
+scripts/taskctl.sh verify-done designer TASK-1001
 scripts/taskctl.sh done designer TASK-1001 "Delivered UX spec and validation notes"
 scripts/taskctl.sh block be TASK-1003 "Waiting on API contract clarification"
 
@@ -260,7 +271,8 @@ Worker logs and runtime files:
 Notes:
 - `scripts/agents_ctl.sh status` now cleans stale PID files automatically.
 - In environments that reap detached background jobs between separate shell invocations, prefer `scripts/agents_ctl.sh once ...` for deterministic execution.
-- Worker reasoning policy defaults to `xhigh` for planner/orchestrator roles (`pm`, `coordinator`, `architect`) and `none` for other agents; override with `AGENT_XHIGH_AGENTS`, `AGENT_PLANNER_REASONING_EFFORT`, and `AGENT_DEFAULT_REASONING_EFFORT` if needed (`default`/`null` aliases normalize to `none`).
+- Worker reasoning policy defaults to `xhigh` for strict-delivery lanes (`pm`, `coordinator`, `planner`, `researcher`, `architect`, `be`, `review`) and `medium` for others; override with `AGENT_XHIGH_AGENTS`, `AGENT_PLANNER_REASONING_EFFORT`, and `AGENT_DEFAULT_REASONING_EFFORT` if needed (`default`/`null` aliases normalize to `none`).
+- Worker success does not auto-close tasks; `taskctl verify-done` must pass before transition to `done`.
 
 ## Safety Guards
 
@@ -312,7 +324,7 @@ docker run --rm codex-dev:toolbelt bash -c 'python3 -m venv /tmp/venv && /tmp/ve
 │   ├── examples/
 │   └── roles/
 └── scripts/
-    ├── project_container.sh
+    ├── toolbelt.sh
     ├── taskctl.sh
     ├── agent_worker.sh
     └── agents_ctl.sh

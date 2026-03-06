@@ -17,7 +17,6 @@ All notable changes to this project are documented in this file.
 - Blocker escalation path that auto-creates creator-facing blocker report tasks.
 - New default role prompts for `pm`, `designer`, and `architect`.
 - Runtime safety guards that require orchestration scripts to execute inside Docker and from `/workspace`.
-- Host-side per-project container launcher `scripts/project_container.sh` for mounting arbitrary project paths to `/workspace`.
 - Image-baked coordination baseline under `/opt/codex-baseline` with opt-in workspace seeding via `codex-init-workspace`.
 - `scripts/agents_ctl.sh once` mode to run per-agent `--once` workers in parallel and wait in a single session.
 - `scripts/coordination_repair.sh` helper to backfill missing coordination directories/prompts and re-ensure core agent lanes for older/incomplete workspaces.
@@ -27,6 +26,7 @@ All notable changes to this project are documented in this file.
 - `scripts/verify_clarification_workflow_contract.sh` end-to-end orchestration simulation verifier for blocker routing and clarification completion gate logic.
 - `scripts/verify_orchestrator_clarification_suite.sh` single-entry verification suite for all clarification and locking contracts.
 - `scripts/verify_agent_worker_reasoning_contract.sh` contract verifier proving per-agent reasoning selection isolation (`coordinator` planner effort vs downstream default effort with no sticky leakage).
+- Host-side selective mount launcher `scripts/toolbelt.sh` with opt-in Docker socket support (`--docker`) and path-to-`/workspace/<basename>` mapping.
 
 ### Changed
 - `AGENTS.md` now documents background agent orchestration commands and files.
@@ -38,6 +38,8 @@ All notable changes to this project are documented in this file.
 - `scripts/agent_worker.sh` now normalizes `AGENT_*_REASONING_EFFORT=default` and legacy `null` inputs to `none` to avoid config parse failures.
 - `scripts/agent_worker.sh` now guards task transitions so one-shot workers do not fail when a task already self-transitioned out of `in_progress` (for example when an agent calls `taskctl done` directly).
 - `README.md` and `AGENTS.md` now document the planner/orchestrator reasoning policy and corresponding worker environment overrides.
+- `README.md` now documents selective mount workflows with `scripts/toolbelt.sh`, including examples and zsh/bash alias usage.
+- `scripts/toolbelt.sh` now mounts the current working directory to `/workspace` when no positional mount paths are provided.
 - Startup MOTD now presents grouped/colorized sections with most-used commands first (`codex`, `ralph`, `openclaw`, `claude`, `gemini`, `cursor` with `agent`/`cursor-agent` aliases, `codex-init-workspace`), plus a dynamic absolute-path listing of all image-baked scripts under `/opt/codex-baseline/scripts/`.
 - `coordination/prompts/TOP_LEVEL_AGENT_PROMPT.md` now enforces a PM-style plan loop (deep clarification, specialist delegation cycles, aggregation, blocker-first handling, and explicit next-step checkpoints).
 - `coordination/prompts/TOP_LEVEL_AGENT_PROMPT.md` now requires TDD red-green-blue workflow evidence for software specialist tasks unless explicitly waived by the user.

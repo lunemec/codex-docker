@@ -11,7 +11,7 @@ This repository defines a Codex-focused developer Docker image (`Dockerfile.code
 - `scripts/agent_worker.sh`: polling worker loop for specialist execution.
 - `scripts/agents_ctl.sh`: start/stop/status for background specialist workers.
 - `scripts/coordination_repair.sh`: backfill helper for missing coordination files/prompts and core lane scaffolding.
-- `scripts/project_container.sh`: host-side launcher for per-project Docker workspaces mounted at `/workspace`.
+- `scripts/toolbelt.sh`: host-side launcher for selective mounts into `/workspace/<basename>`.
 - `container/codex-init-workspace.sh`: image bootstrap script that seeds baseline coordination files into `/workspace`.
 - `container/codex-entrypoint.sh`: image entrypoint that prints startup MOTD with quick commands.
 

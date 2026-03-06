@@ -55,8 +55,8 @@ describe_script() {
     coordination_repair.sh)
       echo "Backfill missing coordination files/prompts and core lane scaffolding."
       ;;
-    project_container.sh)
-      echo "Host-side launcher for per-project /workspace containers."
+    toolbelt.sh)
+      echo "Host-side selective mount launcher (path args -> /workspace/<basename>)."
       ;;
     verify_*.sh)
       echo "Contract/smoke verifier helper."
