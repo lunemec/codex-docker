@@ -239,6 +239,7 @@ scripts/taskctl.sh delegate pm designer TASK-1001 "Create UX spec" --priority 20
 # Claim / finish / block
 scripts/taskctl.sh claim designer
 scripts/taskctl.sh verify-done designer TASK-1001
+scripts/taskctl.sh benchmark-init coordinator TASK-2000
 scripts/taskctl.sh benchmark-verify coordinator TASK-2000
 scripts/taskctl.sh benchmark-rerun coordinator TASK-2000
 scripts/taskctl.sh benchmark-score coordinator TASK-2000
@@ -290,7 +291,8 @@ Notes:
 - In environments that reap detached background jobs between separate shell invocations, prefer `scripts/agents_ctl.sh once ...` for deterministic execution.
 - Worker reasoning policy defaults to `xhigh` for strict-delivery lanes (`pm`, `coordinator`, `planner`, `researcher`, `architect`, `be`, `review`) and `medium` for others; override with `AGENT_XHIGH_AGENTS`, `AGENT_PLANNER_REASONING_EFFORT`, and `AGENT_DEFAULT_REASONING_EFFORT` if needed (`default`/`null` aliases normalize to `none`).
 - Worker success does not auto-close tasks; `taskctl verify-done` must pass before transition to `done`.
-- Benchmark tasks now require structured evidence blocks (`Command`/`Exit`/`Log`/`Observed`) and independent rerun evidence for strict closeout.
+- Benchmark tasks now require structured evidence blocks (`Command`/`Exit`/`Log`/`Log Hash`/`Observed`) and independent rerun evidence for strict closeout.
+- `benchmark-closeout-check` now enforces review-owned reruns and rerun freshness after execute-phase updates.
 - Benchmark metadata now inherits from parent tasks by default on `create`/`delegate`; strict benchmark-parent execution/review/closeout tasks require benchmark metadata or explicit `benchmark_opt_out_reason`.
 
 ## Safety Guards

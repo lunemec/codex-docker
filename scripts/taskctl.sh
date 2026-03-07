@@ -68,6 +68,7 @@ Usage:
   $0 assign <TASK_ID> <agent> [--coding-owner-lanes <agents>]
   $0 claim <agent> [--coding-owner-lanes <agents>]
   $0 verify-done <agent> <TASK_ID>
+  $0 benchmark-init <agent> <TASK_ID>
   $0 benchmark-verify <agent> <TASK_ID> [--json]
   $0 benchmark-rerun <agent> <TASK_ID>
   $0 benchmark-score <agent> <TASK_ID>
@@ -92,7 +93,7 @@ Notes:
   - Coding-owner auto-target lanes default to "fe,be,db" (set TASK_CODING_OWNER_LANES; override once with --coding-owner-lanes).
   - Supported task phases: clarify, research, plan, execute, review, closeout.
   - done transitions run strict `verify-done` checks before moving tasks to done.
-  - benchmark-* commands enforce profile-driven gates/scores, strict evidence contracts, and independent rerun checks.
+  - benchmark-* commands enforce profile-driven gates/scores, strict evidence contracts (including Log Hash integrity), and independent rerun checks.
   - Benchmark metadata inherits from parent tasks by default; pass --no-benchmark-inherit only with --benchmark-opt-out-reason.
   - lock-clean-stale requires orchestrator actor identity via --actor or TASK_ACTOR_AGENT.
   - Default stale-lock reaper lanes are "pm coordinator" (override with TASK_LOCK_REAPER_AGENTS).
@@ -245,6 +246,11 @@ compute_file_hash() {
   else
     cksum "$file" | awk '{print $1}'
   fi
+}
+
+is_hex_hash_value() {
+  local value="$1"
+  [[ "$value" =~ ^[A-Fa-f0-9]{32,128}$ || "$value" =~ ^[0-9]{1,20}$ ]]
 }
 
 compute_fit_signature() {
@@ -1525,6 +1531,70 @@ extract_task_section() {
   ' "$task_file"
 }
 
+replace_task_section_from_file() {
+  local task_file="$1"
+  local section_name="$2"
+  local replacement_file="$3"
+
+  [[ -f "$task_file" ]] || {
+    echo "cannot replace section in missing task file: $task_file" >&2
+    return 1
+  }
+  [[ -f "$replacement_file" ]] || {
+    echo "replacement section file not found: $replacement_file" >&2
+    return 1
+  }
+
+  local rendered_tmp
+  rendered_tmp="$(mktemp)"
+
+  awk -v section_name="$section_name" -v replacement_file="$replacement_file" '
+    function emit_replacement(    line) {
+      while ((getline line < replacement_file) > 0) {
+        print line
+      }
+      close(replacement_file)
+    }
+
+    BEGIN {
+      in_section = 0
+      replaced = 0
+    }
+
+    $0 == "## " section_name {
+      print
+      emit_replacement()
+      in_section = 1
+      replaced = 1
+      next
+    }
+
+    in_section && /^## [^#]/ {
+      in_section = 0
+      print
+      next
+    }
+
+    in_section {
+      next
+    }
+
+    {
+      print
+    }
+
+    END {
+      if (!replaced) {
+        print ""
+        print "## " section_name
+        emit_replacement()
+      }
+    }
+  ' "$task_file" >"$rendered_tmp"
+
+  mv "$rendered_tmp" "$task_file"
+}
+
 task_yaml_array_values() {
   local task_file="$1"
   local field="$2"
@@ -1794,15 +1864,23 @@ parse_result_command_blocks() {
   local exits_name="$3"
   local logs_name="$4"
   local observed_name="$5"
+  local log_hashes_name="${6:-}"
   local -n commands_ref="$commands_name"
   local -n exits_ref="$exits_name"
   local -n logs_ref="$logs_name"
   local -n observed_ref="$observed_name"
+  local has_log_hashes=0
 
   commands_ref=()
   exits_ref=()
   logs_ref=()
   observed_ref=()
+
+  if [[ -n "$log_hashes_name" ]]; then
+    has_log_hashes=1
+    local -n log_hashes_ref="$log_hashes_name"
+    log_hashes_ref=()
+  fi
 
   local current_index=-1 line value
   while IFS= read -r line; do
@@ -1813,6 +1891,9 @@ parse_result_command_blocks() {
         exits_ref+=("")
         logs_ref+=("")
         observed_ref+=("")
+        if [[ "$has_log_hashes" -eq 1 ]]; then
+          log_hashes_ref+=("")
+        fi
         current_index=$(( ${#commands_ref[@]} - 1 ))
         ;;
       Exit:*)
@@ -1828,6 +1909,11 @@ parse_result_command_blocks() {
       Observed:*)
         if (( current_index >= 0 )); then
           observed_ref[$current_index]="$(trim_spaces "${line#Observed:}")"
+        fi
+        ;;
+      Log\ Hash:*)
+        if (( current_index >= 0 )) && [[ "$has_log_hashes" -eq 1 ]]; then
+          log_hashes_ref[$current_index]="$(trim_spaces "${line#Log Hash:}")"
         fi
         ;;
     esac
@@ -1935,6 +2021,151 @@ task_parent_file_path() {
   parent_file="$(find_existing_task "$parent_id")"
   [[ -n "$parent_file" ]] || return 1
   printf '%s' "$parent_file"
+}
+
+task_id_from_file() {
+  local task_file="$1"
+  local task_id
+  task_id="$(field_value "$task_file" "id")"
+  [[ -n "$task_id" ]] || task_id="$(basename "$task_file" .md)"
+  printf '%s' "$task_id"
+}
+
+timestamp_to_epoch() {
+  local ts_raw="$1"
+  local ts
+  ts="$(trim_spaces "$ts_raw")"
+  [[ -n "$ts" ]] || {
+    printf '0'
+    return 0
+  }
+
+  local epoch
+  if epoch="$(date -d "$ts" +%s 2>/dev/null)"; then
+    printf '%s' "$epoch"
+    return 0
+  fi
+
+  printf '0'
+}
+
+task_updated_at_epoch() {
+  local task_file="$1"
+  local updated_at
+  updated_at="$(task_yaml_scalar_value "$task_file" "updated_at" 2>/dev/null || true)"
+
+  local epoch
+  epoch="$(timestamp_to_epoch "$updated_at")"
+  if [[ "$epoch" =~ ^[0-9]+$ ]] && (( epoch > 0 )); then
+    printf '%s' "$epoch"
+    return 0
+  fi
+
+  if command -v stat >/dev/null 2>&1; then
+    stat -c %Y "$task_file" 2>/dev/null || printf '0'
+  else
+    printf '0'
+  fi
+}
+
+benchmark_collect_chain_task_files() {
+  local root_task_file="$1"
+
+  [[ -f "$root_task_file" ]] || {
+    echo "benchmark chain root task file not found: $root_task_file" >&2
+    return 1
+  }
+
+  local root_task_id
+  root_task_id="$(task_id_from_file "$root_task_file")"
+
+  local -a queue_ids=("$root_task_id")
+  local -a chain_files=("$root_task_file")
+  local -a seen_task_ids=("$root_task_id")
+
+  while (( ${#queue_ids[@]} > 0 )); do
+    local parent_id="${queue_ids[0]}"
+    queue_ids=("${queue_ids[@]:1}")
+
+    local candidate_file
+    while IFS= read -r candidate_file; do
+      [[ -n "$candidate_file" ]] || continue
+
+      local candidate_parent
+      candidate_parent="$(task_parent_id_value "$candidate_file" 2>/dev/null || true)"
+      if [[ "$candidate_parent" != "$parent_id" ]]; then
+        continue
+      fi
+
+      append_unique_array_value chain_files "$candidate_file"
+      local candidate_id
+      candidate_id="$(task_id_from_file "$candidate_file")"
+      local already_seen=0
+      local seen_id
+      for seen_id in "${seen_task_ids[@]}"; do
+        if [[ "$seen_id" == "$candidate_id" ]]; then
+          already_seen=1
+          break
+        fi
+      done
+      if [[ "$already_seen" -eq 0 ]]; then
+        seen_task_ids+=("$candidate_id")
+        queue_ids+=("$candidate_id")
+      fi
+    done < <(find "$ROOT" -type f -name '*.md' \
+      ! -path "$ROOT/examples/*" \
+      ! -path "$ROOT/templates/*" \
+      ! -path "$ROOT/roles/*" \
+      ! -path "$ROOT/reports/*")
+  done
+
+  printf '%s\n' "${chain_files[@]}"
+}
+
+latest_execute_updated_epoch_in_chain() {
+  local root_task_file="$1"
+  local latest_epoch=0
+
+  local chain_task_file
+  while IFS= read -r chain_task_file; do
+    [[ -n "$chain_task_file" ]] || continue
+    local phase
+    phase="$(task_phase_value "$chain_task_file" 2>/dev/null || true)"
+    if [[ "$phase" != "execute" ]]; then
+      continue
+    fi
+
+    local updated_epoch
+    updated_epoch="$(task_updated_at_epoch "$chain_task_file")"
+    if [[ "$updated_epoch" =~ ^[0-9]+$ ]] && (( updated_epoch > latest_epoch )); then
+      latest_epoch="$updated_epoch"
+    fi
+  done < <(benchmark_collect_chain_task_files "$root_task_file")
+
+  printf '%s' "$latest_epoch"
+}
+
+requirement_status_rank() {
+  local status_raw="$1"
+  local status
+  status="$(printf '%s' "$status_raw" | tr '[:upper:]' '[:lower:]')"
+  case "$status" in
+    met) printf '3' ;;
+    partial) printf '2' ;;
+    missing) printf '1' ;;
+    unverifiable) printf '0' ;;
+    *) printf '0' ;;
+  esac
+}
+
+requirement_status_for_rank() {
+  local rank="${1:-0}"
+  case "$rank" in
+    3) printf 'Met' ;;
+    2) printf 'Partial' ;;
+    1) printf 'Missing' ;;
+    *) printf 'Unverifiable' ;;
+  esac
 }
 
 task_parent_chain_has_benchmark_profile() {
@@ -2307,13 +2538,17 @@ benchmark_verify_task_file() {
   local missing_command_block_fields=0
   local missing_required_artifact_evidence=0
   local missing_rgb_credibility_evidence=0
+  local missing_log_hash_evidence=0
+  local invalid_log_hash_entries=0
+  local mismatched_log_hash_evidence=0
   local -a findings=()
 
   local -a command_block_commands=()
   local -a command_block_exits=()
   local -a command_block_logs=()
+  local -a command_block_log_hashes=()
   local -a command_block_observed=()
-  parse_result_command_blocks "$result_body" command_block_commands command_block_exits command_block_logs command_block_observed
+  parse_result_command_blocks "$result_body" command_block_commands command_block_exits command_block_logs command_block_observed command_block_log_hashes
   local command_block_count="${#command_block_commands[@]}"
 
   if (( command_block_count == 0 )); then
@@ -2331,6 +2566,47 @@ benchmark_verify_task_file() {
     findings+=("gate_targets frontmatter is empty")
     findings_count=$((findings_count + 1))
   fi
+
+  local cmd_idx
+  for cmd_idx in "${!command_block_commands[@]}"; do
+    local block_command block_log block_hash
+    block_command="${command_block_commands[$cmd_idx]}"
+    block_log="${command_block_logs[$cmd_idx]}"
+    block_hash="${command_block_log_hashes[$cmd_idx]}"
+
+    if [[ -z "$block_hash" ]]; then
+      findings+=("missing Log Hash entry for command block: $block_command")
+      findings_count=$((findings_count + 1))
+      missing_log_hash_evidence=$((missing_log_hash_evidence + 1))
+      continue
+    fi
+
+    if ! is_hex_hash_value "$block_hash"; then
+      findings+=("invalid Log Hash format for command block: $block_command")
+      findings_count=$((findings_count + 1))
+      invalid_log_hash_entries=$((invalid_log_hash_entries + 1))
+      continue
+    fi
+
+    if [[ -z "$block_log" ]]; then
+      continue
+    fi
+
+    if ! is_workspace_scoped_path "$block_log" || ! path_exists_in_workspace "$block_log"; then
+      continue
+    fi
+
+    local canonical_log actual_hash normalized_hash
+    canonical_log="$(canonicalize_workspace_path_soft "$block_log")" || continue
+    actual_hash="$(compute_file_hash "/workspace/$canonical_log")"
+    normalized_hash="$(printf '%s' "$block_hash" | tr '[:upper:]' '[:lower:]')"
+
+    if [[ "$actual_hash" != "$normalized_hash" ]]; then
+      findings+=("Log Hash mismatch for command block: $block_command")
+      findings_count=$((findings_count + 1))
+      mismatched_log_hash_evidence=$((mismatched_log_hash_evidence + 1))
+    fi
+  done
 
   local requirement_statuses_json='{}'
   local requirement_id requirement_status
@@ -2643,6 +2919,9 @@ benchmark_verify_task_file() {
     --argjson missing_command_block_fields "$missing_command_block_fields" \
     --argjson missing_required_artifact_evidence "$missing_required_artifact_evidence" \
     --argjson missing_rgb_credibility_evidence "$missing_rgb_credibility_evidence" \
+    --argjson missing_log_hash_evidence "$missing_log_hash_evidence" \
+    --argjson invalid_log_hash_entries "$invalid_log_hash_entries" \
+    --argjson mismatched_log_hash_evidence "$mismatched_log_hash_evidence" \
     --argjson command_block_count "$command_block_count" \
     --argjson findings_count "$findings_count" \
     --argjson data_valid "$data_valid" \
@@ -2660,6 +2939,9 @@ benchmark_verify_task_file() {
       missing_command_block_fields: $missing_command_block_fields,
       missing_required_artifact_evidence: $missing_required_artifact_evidence,
       missing_rgb_credibility_evidence: $missing_rgb_credibility_evidence,
+      missing_log_hash_evidence: $missing_log_hash_evidence,
+      invalid_log_hash_entries: $invalid_log_hash_entries,
+      mismatched_log_hash_evidence: $mismatched_log_hash_evidence,
       command_block_count: $command_block_count,
       findings_count: $findings_count,
       findings: $findings,
@@ -2697,6 +2979,13 @@ benchmark_rerun_task_file() {
   }
   require_agent "$agent"
 
+  local profile_file
+  profile_file="$(task_benchmark_profile_path "$task_file")"
+  [[ -f "$profile_file" ]] || {
+    echo "benchmark-rerun failed: benchmark profile not found: $profile_file" >&2
+    return 1
+  }
+
   local workdir
   workdir="$(task_benchmark_workdir_path "$task_file")" || return 1
 
@@ -2725,7 +3014,7 @@ benchmark_rerun_task_file() {
 
   local all_pass=true
   local command_results='[]'
-  local i rerun_cmd log_file rc
+  local i rerun_cmd log_file log_hash rc
   for i in "${!rerun_commands[@]}"; do
     rerun_cmd="${rerun_commands[$i]}"
     log_file="$log_dir/cmd_$(printf '%03d' "$i").log"
@@ -2742,32 +3031,54 @@ benchmark_rerun_task_file() {
       all_pass=false
     fi
 
+    log_hash="$(compute_file_hash "$log_file")"
     command_results="$(jq -cn \
       --argjson base "$command_results" \
       --arg command "$rerun_cmd" \
       --argjson exit "$rc" \
       --arg log "$log_file" \
-      '$base + [{command: $command, exit: $exit, log: $log}]')"
+      --arg log_hash "$log_hash" \
+      '$base + [{command: $command, exit: $exit, log: $log, log_hash: $log_hash}]')"
   done
 
   local task_id
-  task_id="$(field_value "$task_file" "id")"
-  [[ -n "$task_id" ]] || task_id="$(basename "$task_file" .md)"
+  task_id="$(task_id_from_file "$task_file")"
+  local generated_at
+  generated_at="$(now)"
+  local generated_epoch
+  generated_epoch="$(timestamp_to_epoch "$generated_at")"
+  local task_file_hash profile_hash required_commands_json required_commands_hash
+  task_file_hash="$(compute_file_hash "$task_file")"
+  profile_hash="$(compute_file_hash "$profile_file")"
+  required_commands_json="$(json_array_from_values "${rerun_commands[@]}")"
+  required_commands_hash="$(compute_text_hash "$required_commands_json")"
 
   jq -cn \
-    --arg generated_at "$(now)" \
+    --arg generated_at "$generated_at" \
+    --argjson generated_epoch "$generated_epoch" \
     --arg task_id "$task_id" \
     --arg task_file "$task_file" \
+    --arg task_file_hash "$task_file_hash" \
     --arg agent "$agent" \
     --arg workdir "$workdir" \
+    --arg profile_file "$profile_file" \
+    --arg profile_hash "$profile_hash" \
+    --argjson required_commands "$required_commands_json" \
+    --arg required_commands_hash "$required_commands_hash" \
     --argjson commands "$command_results" \
     --argjson all_pass "$all_pass" \
     '{
       generated_at: $generated_at,
+      generated_epoch: $generated_epoch,
       task_id: $task_id,
       task_file: $task_file,
+      task_file_hash: $task_file_hash,
       agent: $agent,
       workdir: $workdir,
+      profile_file: $profile_file,
+      profile_hash: $profile_hash,
+      required_commands: $required_commands,
+      required_commands_hash: $required_commands_hash,
       all_pass: $all_pass,
       commands: $commands
     }' >"$summary_json_path"
@@ -2855,7 +3166,7 @@ benchmark_score_task_file() {
   local unverifiable_count missing_requirement_count weak_evidence_count
   unverifiable_count="$(printf '%s' "$verify_json" | jq -r '.requirement_statuses | to_entries | map(select(.value == "Unverifiable")) | length')"
   missing_requirement_count="$(printf '%s' "$verify_json" | jq -r '.requirement_statuses | to_entries | map(select(.value == "Missing")) | length')"
-  weak_evidence_count="$(printf '%s' "$verify_json" | jq -r '.missing_requirement_status_entries + .missing_gate_status_entries + .missing_required_command_evidence + .missing_command_block_evidence + .missing_command_block_fields + .missing_required_artifact_evidence + .missing_rgb_credibility_evidence')"
+  weak_evidence_count="$(printf '%s' "$verify_json" | jq -r '.missing_requirement_status_entries + .missing_gate_status_entries + .missing_required_command_evidence + .missing_command_block_evidence + .missing_command_block_fields + .missing_required_artifact_evidence + .missing_rgb_credibility_evidence + (.missing_log_hash_evidence // 0) + (.invalid_log_hash_entries // 0) + (.mismatched_log_hash_evidence // 0)')"
 
   local conservative_penalty
   conservative_penalty="$(awk -v u="$unverifiable_count" -v m="$missing_requirement_count" -v w="$weak_evidence_count" -v verify_rc="$verify_rc" '
@@ -2997,6 +3308,293 @@ benchmark_score_task_file() {
   return 0
 }
 
+benchmark_requirement_consistency_check_task_file() {
+  local task_file="$1"
+
+  local -a root_requirement_ids=()
+  while IFS= read -r requirement_id; do
+    [[ -n "$requirement_id" ]] || continue
+    root_requirement_ids+=("$requirement_id")
+  done < <(task_yaml_array_values "$task_file" "requirement_ids" 2>/dev/null || true)
+
+  if (( ${#root_requirement_ids[@]} == 0 )); then
+    return 0
+  fi
+
+  local root_result_body
+  root_result_body="$(extract_task_section "$task_file" "Result")"
+
+  local -a execute_min_rank=()
+  local -a review_min_rank=()
+  local idx
+  for idx in "${!root_requirement_ids[@]}"; do
+    execute_min_rank+=("99")
+    review_min_rank+=("99")
+  done
+
+  local chain_task_file
+  while IFS= read -r chain_task_file; do
+    [[ -n "$chain_task_file" ]] || continue
+    if [[ "$chain_task_file" == "$task_file" ]]; then
+      continue
+    fi
+
+    local chain_phase
+    chain_phase="$(task_phase_value "$chain_task_file" 2>/dev/null || true)"
+    if [[ "$chain_phase" != "execute" && "$chain_phase" != "review" ]]; then
+      continue
+    fi
+
+    local chain_result_body
+    chain_result_body="$(extract_task_section "$chain_task_file" "Result")"
+
+    for idx in "${!root_requirement_ids[@]}"; do
+      local requirement_id status rank current_rank
+      requirement_id="${root_requirement_ids[$idx]}"
+      status="$(extract_result_value_for_key "$chain_result_body" "$requirement_id" 'Met|Partial|Missing|Unverifiable')"
+      [[ -n "$status" ]] || continue
+      rank="$(requirement_status_rank "$status")"
+
+      if [[ "$chain_phase" == "review" ]]; then
+        current_rank="${review_min_rank[$idx]}"
+        if (( rank < current_rank )); then
+          review_min_rank[$idx]="$rank"
+        fi
+      else
+        current_rank="${execute_min_rank[$idx]}"
+        if (( rank < current_rank )); then
+          execute_min_rank[$idx]="$rank"
+        fi
+      fi
+    done
+  done < <(benchmark_collect_chain_task_files "$task_file")
+
+  local -a findings=()
+  for idx in "${!root_requirement_ids[@]}"; do
+    local requirement_id parent_status parent_rank source_rank source_phase source_status
+    requirement_id="${root_requirement_ids[$idx]}"
+    parent_status="$(extract_result_value_for_key "$root_result_body" "$requirement_id" 'Met|Partial|Missing|Unverifiable')"
+    if [[ -z "$parent_status" ]]; then
+      findings+=("root closeout missing requirement status row for $requirement_id")
+      continue
+    fi
+    parent_rank="$(requirement_status_rank "$parent_status")"
+
+    source_rank="99"
+    source_phase=""
+    if (( review_min_rank[$idx] != 99 )); then
+      source_rank="${review_min_rank[$idx]}"
+      source_phase="review"
+    elif (( execute_min_rank[$idx] != 99 )); then
+      source_rank="${execute_min_rank[$idx]}"
+      source_phase="execute"
+    fi
+
+    if [[ "$source_phase" == "" ]]; then
+      continue
+    fi
+
+    if (( parent_rank > source_rank )); then
+      source_status="$(requirement_status_for_rank "$source_rank")"
+      findings+=("root closeout requirement $requirement_id status=$parent_status exceeds $source_phase evidence floor=$source_status")
+    fi
+  done
+
+  if (( ${#findings[@]} > 0 )); then
+    local finding
+    for finding in "${findings[@]}"; do
+      echo "benchmark-closeout consistency finding: $finding"
+    done
+    return 1
+  fi
+
+  return 0
+}
+
+benchmark_init_task_file() {
+  local task_file="$1"
+  require_command jq
+
+  [[ -f "$task_file" ]] || {
+    echo "benchmark-init failed: task file not found: $task_file" >&2
+    return 1
+  }
+
+  local benchmark_opt_out_reason
+  benchmark_opt_out_reason="$(task_benchmark_opt_out_reason "$task_file")"
+  if [[ -n "$benchmark_opt_out_reason" ]]; then
+    echo "benchmark-init failed: task has benchmark_opt_out_reason and is not benchmark-scored: $task_file" >&2
+    return 1
+  fi
+
+  local benchmark_profile_value
+  benchmark_profile_value="$(normalize_benchmark_scalar "$(task_yaml_scalar_value "$task_file" "benchmark_profile" 2>/dev/null || true)")"
+  if [[ "$benchmark_profile_value" == "none" ]]; then
+    local default_profile_value="$DEFAULT_BENCHMARK_PROFILE_PATH"
+    if [[ -f "$ROOT/benchmark_profiles/vault_sync_prompt_v1.json" ]]; then
+      default_profile_value="benchmark_profiles/vault_sync_prompt_v1.json"
+    fi
+    set_field "$task_file" "benchmark_profile" "$(yaml_quote_single "$default_profile_value")"
+  fi
+
+  local profile_file
+  profile_file="$(task_benchmark_profile_path "$task_file")"
+  [[ -f "$profile_file" ]] || {
+    echo "benchmark-init failed: benchmark profile not found: $profile_file" >&2
+    return 1
+  }
+
+  local benchmark_workdir_value
+  benchmark_workdir_value="$(task_yaml_scalar_value "$task_file" "benchmark_workdir" 2>/dev/null || true)"
+  benchmark_workdir_value="$(printf '%s' "$benchmark_workdir_value" | sed -E "s/^'+|'+$//g; s/^[[:space:]]+//; s/[[:space:]]+$//")"
+  if [[ -z "$benchmark_workdir_value" || "$benchmark_workdir_value" == "none" || "$benchmark_workdir_value" == "null" ]]; then
+    set_field "$task_file" "benchmark_workdir" "'.'"
+  fi
+
+  local task_id
+  task_id="$(task_id_from_file "$task_file")"
+  local owner_agent
+  owner_agent="$(field_value "$task_file" "owner_agent")"
+  if [[ -z "$owner_agent" || "$owner_agent" == "none" ]]; then
+    owner_agent="coordinator"
+  fi
+
+  local scorecard_artifact_value
+  scorecard_artifact_value="$(normalize_benchmark_scalar "$(task_yaml_scalar_value "$task_file" "scorecard_artifact" 2>/dev/null || true)")"
+  if [[ "$scorecard_artifact_value" == "none" ]]; then
+    scorecard_artifact_value="$(default_scorecard_artifact_for_task "$owner_agent" "$task_id")"
+    set_field "$task_file" "scorecard_artifact" "$(yaml_quote_single "$scorecard_artifact_value")"
+  fi
+
+  local -a requirement_ids=()
+  while IFS= read -r requirement_id; do
+    [[ -n "$requirement_id" ]] || continue
+    requirement_ids+=("$requirement_id")
+  done < <(task_yaml_array_values "$task_file" "requirement_ids" 2>/dev/null || true)
+  if (( ${#requirement_ids[@]} == 0 )); then
+    while IFS= read -r requirement_id; do
+      [[ -n "$requirement_id" ]] || continue
+      requirement_ids+=("$requirement_id")
+    done < <(jq -r '.requirements[]?.id // empty' "$profile_file")
+    if (( ${#requirement_ids[@]} > 0 )); then
+      set_field "$task_file" "requirement_ids" "$(yaml_inline_list "${requirement_ids[@]}")"
+    fi
+  fi
+
+  local -a gate_targets=()
+  while IFS= read -r gate_target; do
+    [[ -n "$gate_target" ]] || continue
+    gate_targets+=("$gate_target")
+  done < <(task_yaml_array_values "$task_file" "gate_targets" 2>/dev/null || true)
+  if (( ${#gate_targets[@]} == 0 )); then
+    while IFS= read -r gate_target; do
+      [[ -n "$gate_target" ]] || continue
+      gate_targets+=("$gate_target")
+    done < <(benchmark_gate_targets_for_profile "$profile_file")
+    if (( ${#gate_targets[@]} > 0 )); then
+      set_field "$task_file" "gate_targets" "$(yaml_inline_list "${gate_targets[@]}")"
+    fi
+  fi
+
+  local -a evidence_commands=()
+  while IFS= read -r evidence_command; do
+    [[ -n "$evidence_command" ]] || continue
+    evidence_commands+=("$evidence_command")
+  done < <(task_yaml_array_values "$task_file" "evidence_commands" 2>/dev/null || true)
+  if (( ${#evidence_commands[@]} == 0 )); then
+    while IFS= read -r evidence_command; do
+      [[ -n "$evidence_command" ]] || continue
+      evidence_commands+=("$evidence_command")
+    done < <(task_benchmark_required_rerun_commands "$task_file")
+    if (( ${#evidence_commands[@]} > 0 )); then
+      set_field "$task_file" "evidence_commands" "$(yaml_inline_list "${evidence_commands[@]}")"
+    fi
+  fi
+
+  local log_root_relative
+  log_root_relative="$(canonicalize_workspace_path_soft "$ROOT/reports/$owner_agent/benchmark_logs/$task_id")"
+  local log_root_absolute="/workspace/$log_root_relative"
+  mkdir -p "$log_root_absolute"
+
+  local -a weight_order=()
+  while IFS= read -r category; do
+    [[ -n "$category" ]] || continue
+    weight_order+=("$category")
+  done < <(jq -r '.weight_order[]? // empty' "$profile_file")
+  if (( ${#weight_order[@]} == 0 )); then
+    while IFS= read -r category; do
+      [[ -n "$category" ]] || continue
+      weight_order+=("$category")
+    done < <(jq -r '.weights | keys[]' "$profile_file")
+  fi
+
+  local include_g6=0
+  local gate_target
+  for gate_target in "${gate_targets[@]}"; do
+    if [[ "$gate_target" == "G6" ]]; then
+      include_g6=1
+      break
+    fi
+  done
+
+  local result_tmp
+  result_tmp="$(mktemp)"
+  {
+    echo "Requirement Statuses:"
+    local requirement_id
+    for requirement_id in "${requirement_ids[@]}"; do
+      echo "- $requirement_id: Unverifiable"
+    done
+    echo
+    echo "Acceptance Criteria:"
+    echo "- PENDING: replace with explicit pass/fail outcomes"
+    echo
+    echo "Gate Statuses:"
+    for gate_target in "${gate_targets[@]}"; do
+      echo "- $gate_target: fail"
+    done
+    echo
+
+    if [[ "$include_g6" -eq 1 ]]; then
+      echo "- Red Command: replace-with-red-check"
+      echo "- Red Exit: 1"
+      echo "- Red Log: $log_root_absolute/rgb-red.log"
+      echo "- Green Command: replace-with-green-check"
+      echo "- Green Exit: 0"
+      echo "- Green Log: $log_root_absolute/rgb-green.log"
+      echo "- Blue Command: replace-with-blue-check"
+      echo "- Blue Exit: 0"
+      echo "- Blue Log: $log_root_absolute/rgb-blue.log"
+      echo
+    fi
+
+    local category
+    for category in "${weight_order[@]}"; do
+      echo "- $category: 0"
+    done
+    echo
+
+    local i evidence_command log_path
+    for i in "${!evidence_commands[@]}"; do
+      evidence_command="${evidence_commands[$i]}"
+      log_path="$log_root_absolute/cmd_$(printf '%03d' "$i").log"
+      echo "Command: $evidence_command"
+      echo "Exit: 0"
+      echo "Log: $log_path"
+      echo "Log Hash: pending"
+      echo "Observed: pending"
+      echo
+    done
+  } >"$result_tmp"
+
+  replace_task_section_from_file "$task_file" "Result" "$result_tmp"
+  rm -f "$result_tmp"
+
+  set_field "$task_file" "updated_at" "$(now)"
+
+  echo "benchmark-init: task_file=$task_file profile=$profile_file commands=${#evidence_commands[@]} requirements=${#requirement_ids[@]} gates=${#gate_targets[@]}"
+}
+
 benchmark_closeout_check_task_file() {
   local task_file="$1"
   local agent="${2:-coordinator}"
@@ -3011,9 +3609,20 @@ benchmark_closeout_check_task_file() {
 
   local require_independent_rerun
   require_independent_rerun="$(jq -r '.closeout.require_independent_rerun // true' "$profile_file")"
+  local rerun_agent
+  rerun_agent="$(jq -r '.closeout.independent_rerun_agent // "review"' "$profile_file")"
+  rerun_agent="$(printf '%s' "$rerun_agent" | tr '[:upper:]' '[:lower:]' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+  [[ -n "$rerun_agent" ]] || rerun_agent="review"
+  require_agent "$rerun_agent"
+
+  if [[ "$require_independent_rerun" == "true" && "$rerun_agent" != "review" ]]; then
+    echo "benchmark-closeout-check failed: independent rerun agent must be review (configured=$rerun_agent)" >&2
+    return 1
+  fi
+
   if [[ "$require_independent_rerun" == "true" ]]; then
-    if ! benchmark_rerun_task_file "$task_file" "$agent" >/dev/null; then
-      echo "benchmark-closeout-check failed: independent rerun failed (agent=$agent)" >&2
+    if ! benchmark_rerun_task_file "$task_file" "$rerun_agent" >/dev/null; then
+      echo "benchmark-closeout-check failed: independent rerun failed (agent=$rerun_agent)" >&2
       return 1
     fi
   fi
@@ -3036,17 +3645,100 @@ benchmark_closeout_check_task_file() {
 
   if [[ "$require_independent_rerun" == "true" ]]; then
     local rerun_summary_path rerun_all_pass
-    rerun_summary_path="$(task_benchmark_rerun_summary_path "$task_file" "$agent")"
+    rerun_summary_path="$(task_benchmark_rerun_summary_path "$task_file" "$rerun_agent")"
     [[ -f "$rerun_summary_path" ]] || {
       echo "benchmark-closeout-check failed: rerun summary missing: $rerun_summary_path" >&2
       return 1
     }
+
+    local summary_agent
+    summary_agent="$(jq -r '.agent // ""' "$rerun_summary_path")"
+    if [[ "$summary_agent" != "review" ]]; then
+      echo "benchmark-closeout-check failed: rerun summary is not review-owned: $rerun_summary_path (agent=$summary_agent)" >&2
+      return 1
+    fi
+
     rerun_all_pass="$(jq -r '.all_pass' "$rerun_summary_path")"
     if [[ "$rerun_all_pass" != "true" ]]; then
       echo "benchmark-closeout-check failed: rerun summary indicates failed commands: $rerun_summary_path" >&2
       jq -r '.commands[]? | select(.exit != 0) | "rerun failure: \(.command) (exit=\(.exit), log=\(.log))"' "$rerun_summary_path"
       return 1
     fi
+
+    local current_task_file_hash summary_task_file_hash
+    current_task_file_hash="$(compute_file_hash "$task_file")"
+    summary_task_file_hash="$(jq -r '.task_file_hash // ""' "$rerun_summary_path")"
+    if [[ -z "$summary_task_file_hash" || "$summary_task_file_hash" != "$current_task_file_hash" ]]; then
+      echo "benchmark-closeout-check failed: rerun summary task_file_hash mismatch (summary=$summary_task_file_hash current=$current_task_file_hash)" >&2
+      return 1
+    fi
+
+    local current_profile_hash summary_profile_hash
+    current_profile_hash="$(compute_file_hash "$profile_file")"
+    summary_profile_hash="$(jq -r '.profile_hash // ""' "$rerun_summary_path")"
+    if [[ -z "$summary_profile_hash" || "$summary_profile_hash" != "$current_profile_hash" ]]; then
+      echo "benchmark-closeout-check failed: rerun summary profile_hash mismatch (summary=$summary_profile_hash current=$current_profile_hash)" >&2
+      return 1
+    fi
+
+    local -a rerun_commands=()
+    while IFS= read -r rerun_cmd; do
+      [[ -n "$rerun_cmd" ]] || continue
+      rerun_commands+=("$rerun_cmd")
+    done < <(task_benchmark_required_rerun_commands "$task_file")
+    local expected_commands_json expected_commands_hash summary_commands_hash
+    expected_commands_json="$(json_array_from_values "${rerun_commands[@]}")"
+    expected_commands_hash="$(compute_text_hash "$expected_commands_json")"
+    summary_commands_hash="$(jq -r '.required_commands_hash // ""' "$rerun_summary_path")"
+    if [[ -z "$summary_commands_hash" || "$summary_commands_hash" != "$expected_commands_hash" ]]; then
+      echo "benchmark-closeout-check failed: rerun summary required_commands_hash mismatch (summary=$summary_commands_hash current=$expected_commands_hash)" >&2
+      return 1
+    fi
+
+    local hash_failures=0
+    local summary_cmd summary_log summary_log_hash
+    while IFS=$'\t' read -r summary_cmd summary_log summary_log_hash; do
+      [[ -n "$summary_cmd" ]] || continue
+      if [[ -z "$summary_log_hash" ]] || ! is_hex_hash_value "$summary_log_hash"; then
+        echo "benchmark-closeout-check failed: rerun command missing/invalid log_hash: $summary_cmd" >&2
+        hash_failures=$((hash_failures + 1))
+        continue
+      fi
+      if [[ -z "$summary_log" || ! -f "$summary_log" ]]; then
+        echo "benchmark-closeout-check failed: rerun command log missing: $summary_cmd log=$summary_log" >&2
+        hash_failures=$((hash_failures + 1))
+        continue
+      fi
+
+      local actual_summary_hash normalized_summary_hash
+      actual_summary_hash="$(compute_file_hash "$summary_log")"
+      normalized_summary_hash="$(printf '%s' "$summary_log_hash" | tr '[:upper:]' '[:lower:]')"
+      if [[ "$actual_summary_hash" != "$normalized_summary_hash" ]]; then
+        echo "benchmark-closeout-check failed: rerun command log hash mismatch: $summary_cmd" >&2
+        hash_failures=$((hash_failures + 1))
+      fi
+    done < <(jq -r '.commands[]? | [.command, (.log // ""), (.log_hash // "")] | @tsv' "$rerun_summary_path")
+
+    if (( hash_failures > 0 )); then
+      return 1
+    fi
+
+    local summary_generated_epoch summary_generated_at latest_execute_epoch
+    summary_generated_epoch="$(jq -r '.generated_epoch // 0' "$rerun_summary_path")"
+    if ! [[ "$summary_generated_epoch" =~ ^[0-9]+$ ]] || (( summary_generated_epoch <= 0 )); then
+      summary_generated_at="$(jq -r '.generated_at // ""' "$rerun_summary_path")"
+      summary_generated_epoch="$(timestamp_to_epoch "$summary_generated_at")"
+    fi
+    latest_execute_epoch="$(latest_execute_updated_epoch_in_chain "$task_file")"
+    if [[ "$latest_execute_epoch" =~ ^[0-9]+$ ]] && (( latest_execute_epoch > 0 )) && (( summary_generated_epoch < latest_execute_epoch )); then
+      echo "benchmark-closeout-check failed: rerun summary stale vs execute updates (rerun_epoch=$summary_generated_epoch latest_execute_epoch=$latest_execute_epoch)" >&2
+      return 1
+    fi
+  fi
+
+  if ! benchmark_requirement_consistency_check_task_file "$task_file"; then
+    echo "benchmark-closeout-check failed: closeout requirement statuses conflict with child execute/review outcomes"
+    return 1
   fi
 
   if [[ "$ready" != "true" ]]; then
@@ -3055,7 +3747,7 @@ benchmark_closeout_check_task_file() {
     return 1
   fi
 
-  echo "benchmark-closeout-check passed: final_total=$final_total min_score=$min_score all_target_gates_pass=$all_target_gates_pass require_independent_rerun=$require_independent_rerun"
+  echo "benchmark-closeout-check passed: final_total=$final_total min_score=$min_score all_target_gates_pass=$all_target_gates_pass require_independent_rerun=$require_independent_rerun rerun_agent=$rerun_agent"
 }
 
 benchmark_audit_chain_task_file() {
@@ -3067,53 +3759,42 @@ benchmark_audit_chain_task_file() {
   }
 
   local root_task_id
-  root_task_id="$(field_value "$task_file" "id")"
-  [[ -n "$root_task_id" ]] || root_task_id="$(basename "$task_file" .md)"
+  root_task_id="$(task_id_from_file "$task_file")"
 
   local root_has_benchmark=0
   if task_has_benchmark_profile "$task_file"; then
     root_has_benchmark=1
   fi
 
-  local -a queue_ids=("$root_task_id")
-  local -a chain_files=("$task_file")
-  local -a seen_task_ids=("$root_task_id")
+  local profile_file=""
+  if [[ "$root_has_benchmark" -eq 1 ]]; then
+    profile_file="$(task_benchmark_profile_path "$task_file")"
+  fi
 
-  while (( ${#queue_ids[@]} > 0 )); do
-    local parent_id="${queue_ids[0]}"
-    queue_ids=("${queue_ids[@]:1}")
+  local -a chain_files=()
+  while IFS= read -r chain_file; do
+    [[ -n "$chain_file" ]] || continue
+    chain_files+=("$chain_file")
+  done < <(benchmark_collect_chain_task_files "$task_file")
 
-    local candidate_file
-    while IFS= read -r candidate_file; do
-      [[ -n "$candidate_file" ]] || continue
+  local -a root_requirement_ids=()
+  while IFS= read -r requirement_id; do
+    [[ -n "$requirement_id" ]] || continue
+    root_requirement_ids+=("$requirement_id")
+  done < <(task_yaml_array_values "$task_file" "requirement_ids" 2>/dev/null || true)
+  if (( ${#root_requirement_ids[@]} == 0 )) && [[ "$root_has_benchmark" -eq 1 ]] && [[ -f "$profile_file" ]]; then
+    while IFS= read -r requirement_id; do
+      [[ -n "$requirement_id" ]] || continue
+      root_requirement_ids+=("$requirement_id")
+    done < <(jq -r '.requirements[]?.id // empty' "$profile_file")
+  fi
 
-      local candidate_parent
-      candidate_parent="$(task_parent_id_value "$candidate_file" 2>/dev/null || true)"
-      if [[ "$candidate_parent" != "$parent_id" ]]; then
-        continue
-      fi
-
-      append_unique_array_value chain_files "$candidate_file"
-      local candidate_id
-      candidate_id="$(field_value "$candidate_file" "id")"
-      [[ -n "$candidate_id" ]] || candidate_id="$(basename "$candidate_file" .md)"
-      local already_seen=0
-      local seen_id
-      for seen_id in "${seen_task_ids[@]}"; do
-        if [[ "$seen_id" == "$candidate_id" ]]; then
-          already_seen=1
-          break
-        fi
-      done
-      if [[ "$already_seen" -eq 0 ]]; then
-        seen_task_ids+=("$candidate_id")
-        queue_ids+=("$candidate_id")
-      fi
-    done < <(find "$ROOT" -type f -name '*.md' \
-      ! -path "$ROOT/examples/*" \
-      ! -path "$ROOT/templates/*" \
-      ! -path "$ROOT/roles/*" \
-      ! -path "$ROOT/reports/*")
+  local -a requirement_execute_coverage=()
+  local -a requirement_review_coverage=()
+  local req_index
+  for req_index in "${!root_requirement_ids[@]}"; do
+    requirement_execute_coverage+=("0")
+    requirement_review_coverage+=("0")
   done
 
   local -a findings=()
@@ -3140,9 +3821,12 @@ benchmark_audit_chain_task_file() {
     if [[ "$chain_phase" == "execute" || "$chain_phase" == "review" || "$chain_phase" == "closeout" ]]; then
       local req_count=0
       local ev_count=0
-      while IFS= read -r _; do
-        req_count=$((req_count + 1))
+      local -a chain_requirement_ids=()
+      while IFS= read -r task_requirement_id; do
+        [[ -n "$task_requirement_id" ]] || continue
+        chain_requirement_ids+=("$task_requirement_id")
       done < <(task_yaml_array_values "$chain_task_file" "requirement_ids" 2>/dev/null || true)
+      req_count="${#chain_requirement_ids[@]}"
       while IFS= read -r _; do
         ev_count=$((ev_count + 1))
       done < <(task_yaml_array_values "$chain_task_file" "evidence_commands" 2>/dev/null || true)
@@ -3152,6 +3836,37 @@ benchmark_audit_chain_task_file() {
       fi
       if [[ "$ev_count" -eq 0 ]]; then
         findings+=("missing evidence_commands for strict phase task: $chain_task_file")
+      fi
+
+      if (( ${#root_requirement_ids[@]} > 0 )) && [[ "$chain_phase" == "execute" || "$chain_phase" == "review" ]]; then
+        local chain_result_body
+        chain_result_body="$(extract_task_section "$chain_task_file" "Result")"
+
+        for req_index in "${!root_requirement_ids[@]}"; do
+          local requirement_id declared_in_task=0 task_requirement_id requirement_status
+          requirement_id="${root_requirement_ids[$req_index]}"
+          for task_requirement_id in "${chain_requirement_ids[@]}"; do
+            if [[ "$task_requirement_id" == "$requirement_id" ]]; then
+              declared_in_task=1
+              break
+            fi
+          done
+
+          if [[ "$declared_in_task" -eq 0 ]]; then
+            continue
+          fi
+
+          requirement_status="$(extract_result_value_for_key "$chain_result_body" "$requirement_id" 'Met|Partial|Missing|Unverifiable')"
+          if [[ -z "$requirement_status" ]]; then
+            findings+=("missing requirement status in $chain_phase task for $requirement_id: $chain_task_file")
+          fi
+
+          if [[ "$chain_phase" == "execute" ]]; then
+            requirement_execute_coverage[$req_index]="1"
+          else
+            requirement_review_coverage[$req_index]="1"
+          fi
+        done
       fi
     fi
 
@@ -3177,6 +3892,17 @@ benchmark_audit_chain_task_file() {
   if [[ "$has_closeout" -eq 0 ]]; then
     findings+=("no closeout-phase task found in chain")
   fi
+
+  for req_index in "${!root_requirement_ids[@]}"; do
+    local requirement_id
+    requirement_id="${root_requirement_ids[$req_index]}"
+    if [[ "${requirement_execute_coverage[$req_index]}" != "1" ]]; then
+      findings+=("requirement $requirement_id has no execute-phase evidence coverage in chain")
+    fi
+    if [[ "${requirement_review_coverage[$req_index]}" != "1" ]]; then
+      findings+=("requirement $requirement_id has no review-phase evidence coverage in chain")
+    fi
+  done
 
   if (( ${#findings[@]} > 0 )); then
     local finding
@@ -3862,6 +4588,12 @@ main() {
     verify-done)
       [[ $# -ge 3 ]] || { usage; exit 1; }
       verify_task_done_in_progress "$2" "$3"
+      ;;
+    benchmark-init)
+      [[ $# -eq 3 ]] || { usage; exit 1; }
+      local benchmark_task_file
+      benchmark_task_file="$(resolve_task_for_benchmark_commands "$2" "$3")" || exit 1
+      benchmark_init_task_file "$benchmark_task_file"
       ;;
     benchmark-verify)
       [[ $# -ge 3 ]] || { usage; exit 1; }

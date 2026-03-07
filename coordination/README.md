@@ -90,6 +90,7 @@ scripts/taskctl.sh delegate architect be TASK-1003 "Implement profile API" --pri
 # claim + transition
 scripts/taskctl.sh claim fe
 scripts/taskctl.sh verify-done fe TASK-1002
+scripts/taskctl.sh benchmark-init coordinator TASK-2000
 scripts/taskctl.sh benchmark-verify coordinator TASK-2000
 scripts/taskctl.sh benchmark-rerun coordinator TASK-2000
 scripts/taskctl.sh benchmark-score coordinator TASK-2000
@@ -122,6 +123,7 @@ scripts/taskctl.sh list pm
   - `scorecard_artifact` (for example `coordination/reports/coordinator/benchmark_scorecard.json`)
 - `taskctl create/delegate` inherit benchmark metadata from parent tasks by default.
 - For `execute|review|closeout` tasks in a benchmark parent chain, either keep benchmark metadata populated or set `benchmark_opt_out_reason` explicitly.
+- `scripts/taskctl.sh benchmark-init <agent> <TASK_ID>` backfills benchmark metadata defaults and scaffolds a strict Result template with command/log/hash placeholders.
 - `scripts/taskctl.sh benchmark-verify <agent> <TASK_ID>` validates benchmark evidence structure.
 - `scripts/taskctl.sh benchmark-rerun <agent> <TASK_ID>` re-runs profile-required critical commands and writes a rerun summary artifact.
 - `scripts/taskctl.sh benchmark-score <agent> <TASK_ID>` computes weighted score and writes:
@@ -133,6 +135,7 @@ scripts/taskctl.sh list pm
   - total score `>= 80`
   - all targeted gates marked `pass`
   - independent rerun summary must pass when profile closeout requires rerun
+  - independent rerun is review-owned and must be fresh relative to execute-phase updates
 
 ### Task-Local Prompt Sidecars
 - `taskctl create` and `taskctl delegate` auto-bootstrap:

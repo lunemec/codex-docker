@@ -44,9 +44,10 @@ Agent fills this before moving the task to `done` or `blocked`.
 For `phase: execute|review|closeout`, include:
 - `Requirement Statuses:` entries in form `- <requirement_id>: Met|Partial|Missing|Unverifiable`.
 - `Acceptance Criteria:` with pass/fail status per criterion.
-- One or more structured evidence blocks with `Command:` + `Exit:` + `Log:` + `Observed:`.
+- One or more structured evidence blocks with `Command:` + `Exit:` + `Log:` + `Log Hash:` + `Observed:`.
   - For benchmark tasks, each command in `evidence_commands` must have an exact structured block.
   - Log paths must resolve under `/workspace` and point to existing files.
+  - `Log Hash:` must match the referenced log artifact hash.
 - For benchmark tasks, include `Gate Statuses:` entries in form `- G1: pass|fail`.
 - For strict-phase tasks (`execute|review|closeout`) whose parent chain is benchmark-scored:
   - include benchmark metadata (`benchmark_profile`, `benchmark_workdir`, `gate_targets`, `scorecard_artifact`), or

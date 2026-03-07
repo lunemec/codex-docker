@@ -61,6 +61,7 @@ Do not skip a phase gate.
   - implementation lanes own failing-first regression tests for those invariants.
   - `review` owns independent adversarial reruns.
 - Benchmark evidence must use structured `Command` + `Exit` + `Log` + `Observed` blocks with logs under `/workspace`.
+- Benchmark evidence blocks must include `Log Hash` rows and hash-match the referenced log artifacts.
 - For G6-targeted tasks, require explicit RGB credibility rows (`Red/Green/Blue Command|Exit|Log`).
 - Reject stub-only integrations or no-op success claims for core requirements; treat these as unresolved requirement rows.
 - Do not accept scaffold-only or placeholder outcomes.
@@ -70,6 +71,7 @@ Do not skip a phase gate.
 - Grep/file inventory is allowed as supporting evidence only, never as sole acceptance proof.
 - Re-run critical commands independently; do not rely only on implementer-transcribed command output.
 - For benchmark tasks, run `scripts/taskctl.sh benchmark-rerun <agent> <TASK_ID>` and attach resulting rerun summary artifact.
+- Independent rerun evidence for closeout must be review-owned and freshly generated after execute-phase updates.
 - For benchmark tasks, require at least one negative/regression verification command per high-risk invariant in scope.
 - Exit gate:
   - no unresolved P0/P1 findings

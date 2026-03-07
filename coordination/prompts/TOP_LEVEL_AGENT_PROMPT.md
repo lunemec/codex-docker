@@ -79,6 +79,7 @@ Clarification protocol (strict; non-optional):
   - `be`/`fe`/`db`: implementation + regression tests for identified invariants.
   - `review`: independent adversarial reruns for invariant failure paths.
 - Benchmark evidence must be structured `Command` + `Exit` + `Log` + `Observed`, with logs under `/workspace`.
+- Benchmark evidence blocks must include `Log Hash` rows that match the referenced log artifacts.
 - Software tasks must include Red-Green-Blue evidence in `## Result` using explicit `Red/Green/Blue Command|Exit|Log` rows.
 - Reject stub-only integrations and no-op success claims for core requirements.
 - Do not accept scaffold-only milestones as requirement closure.
@@ -89,6 +90,7 @@ Clarification protocol (strict; non-optional):
 - Grep/file-inventory checks are insufficient for acceptance on their own.
 - Re-run critical verification commands independently of implementation-lane outputs.
 - For benchmark tasks, run `scripts/taskctl.sh benchmark-rerun <agent> <TASK_ID>` and attach rerun summary evidence.
+- Closeout rerun evidence must be review-owned and generated after the latest execute-phase update.
 - For benchmark tasks, include at least one negative/regression command for each high-risk invariant (not only happy-path checks).
 - Review gate:
   - no unresolved P0/P1 findings

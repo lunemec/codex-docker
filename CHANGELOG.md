@@ -5,6 +5,7 @@ All notable changes to this project are documented in this file.
 ## [Unreleased]
 ### Added
 - New `taskctl` benchmark command: `benchmark-audit-chain`, which validates benchmark evidence integrity across parent/child strict-phase tasks.
+- New `taskctl` benchmark command: `benchmark-init`, which backfills benchmark metadata defaults and scaffolds strict Result templates (requirements, gates, scores, command blocks, and `Log Hash` placeholders).
 - New `taskctl create/delegate` benchmark options: `--benchmark-profile`, `--benchmark-workdir`, `--gate-target`, `--scorecard-artifact`, `--benchmark-opt-out-reason`, and `--no-benchmark-inherit`.
 - New `taskctl` benchmark command: `benchmark-rerun`, which independently re-executes profile-required critical commands and writes rerun summaries under `coordination/reports/<agent>/benchmark_reruns/`.
 - Benchmark profile schema extensions for strict evidence checks: `gate_required_command_patterns`, `gate_required_artifact_patterns`, and `credibility_checks.G6` (RGB credibility requirements).
@@ -39,6 +40,10 @@ All notable changes to this project are documented in this file.
 - Host-side selective mount launcher `scripts/toolbelt.sh` with opt-in Docker socket support (`--docker`) and path-to-`/workspace/<basename>` mapping.
 
 ### Changed
+- `scripts/taskctl.sh benchmark-audit-chain` now enforces requirement-aware chain coverage, requiring execute/review evidence ownership per benchmark requirement.
+- `scripts/taskctl.sh benchmark-verify` now requires `Log Hash` fields for structured command evidence and validates hash integrity against referenced logs.
+- `scripts/taskctl.sh benchmark-rerun` now emits integrity metadata (`task_file_hash`, `profile_hash`, per-command `log_hash`, and required-command hash) in rerun summaries.
+- `scripts/taskctl.sh benchmark-closeout-check` now enforces review-owned independent reruns, rerun freshness relative to execute-phase updates, rerun-summary integrity checks, and closeout requirement consistency against child execute/review outcomes.
 - `scripts/taskctl.sh create/delegate` now inherit benchmark metadata from benchmark-configured parents by default and enforce explicit metadata (or explicit opt-out reason) for `execute|review|closeout` tasks in benchmark parent chains.
 - `scripts/taskctl.sh verify-done` now enforces benchmark ancestry requirements for strict phases, runs `benchmark-closeout-check` automatically for benchmark closeout tasks, and validates queue path/status consistency.
 - `scripts/taskctl.sh` benchmark command resolution now rejects task files whose frontmatter status disagrees with queue location.

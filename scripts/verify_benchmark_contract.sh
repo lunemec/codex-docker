@@ -45,6 +45,15 @@ write_log() {
   printf '%s\n' "$body" >"$path"
 }
 
+compute_hash() {
+  local path="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$path" | awk '{print $1}'
+  else
+    cksum "$path" | awk '{print $1}'
+  fi
+}
+
 inject_result_block() {
   local task_file="$1"
   local artifact_path="$2"
@@ -52,6 +61,25 @@ inject_result_block() {
   local logs_root="$4"
   local tmp
   tmp="$(mktemp)"
+
+  local hash_g1_go_version hash_g1_go_build hash_g1_go_test hash_g1_go_test_fresh
+  local hash_g2_auth_sync hash_g2_cli_sync hash_g3_archive_pipeline hash_g3_provenance
+  local hash_g4_architecture hash_g5_integration hash_g6_fresh_pass
+  local hash_red hash_green hash_blue
+  hash_g1_go_version="$(compute_hash "$logs_root/g1-go-version.log")"
+  hash_g1_go_build="$(compute_hash "$logs_root/g1-go-build.log")"
+  hash_g1_go_test="$(compute_hash "$logs_root/g1-go-test.log")"
+  hash_g1_go_test_fresh="$(compute_hash "$logs_root/g1-go-test-fresh.log")"
+  hash_g2_auth_sync="$(compute_hash "$logs_root/g2-auth-sync.log")"
+  hash_g2_cli_sync="$(compute_hash "$logs_root/g2-cli-sync.log")"
+  hash_g3_archive_pipeline="$(compute_hash "$logs_root/g3-archive-pipeline.log")"
+  hash_g3_provenance="$(compute_hash "$logs_root/g3-provenance.log")"
+  hash_g4_architecture="$(compute_hash "$logs_root/g4-architecture.log")"
+  hash_g5_integration="$(compute_hash "$logs_root/g5-integration.log")"
+  hash_g6_fresh_pass="$(compute_hash "$logs_root/g6-fresh-pass.log")"
+  hash_red="$(compute_hash "$logs_root/red.log")"
+  hash_green="$(compute_hash "$logs_root/green.log")"
+  hash_blue="$(compute_hash "$logs_root/blue.log")"
 
   cat >"$tmp" <<EOF
 ---
@@ -141,71 +169,85 @@ Gate Statuses:
 Command: go version
 Exit: 0
 Log: $logs_root/g1-go-version.log
+Log Hash: $hash_g1_go_version
 Observed: go version pass
 
 Command: GOCACHE=/tmp/go-build-cache GOMODCACHE=/tmp/go-mod-cache go build ./...
 Exit: 0
 Log: $logs_root/g1-go-build.log
+Log Hash: $hash_g1_go_build
 Observed: build pass
 
 Command: GOCACHE=/tmp/go-build-cache GOMODCACHE=/tmp/go-mod-cache go test ./...
 Exit: 0
 Log: $logs_root/g1-go-test.log
+Log Hash: $hash_g1_go_test
 Observed: tests pass
 
 Command: GOCACHE=/tmp/go-build-cache GOMODCACHE=/tmp/go-mod-cache go test ./... -count=1
 Exit: 0
 Log: $logs_root/g1-go-test-fresh.log
+Log Hash: $hash_g1_go_test_fresh
 Observed: tests pass on fresh run
 
 Command: go test ./integration -run TestAuthSync -count=1
 Exit: 0
 Log: $logs_root/g2-auth-sync.log
+Log Hash: $hash_g2_auth_sync
 Observed: auth sync integration pass
 
 Command: vaultsync auth sync --check
 Exit: 0
 Log: $logs_root/g2-cli-sync.log
+Log Hash: $hash_g2_cli_sync
 Observed: cli auth sync smoke pass
 
 Command: go test ./integration -run TestArchivePipeline -count=1
 Exit: 0
 Log: $logs_root/g3-archive-pipeline.log
+Log Hash: $hash_g3_archive_pipeline
 Observed: archive pipeline pass
 
 Command: go test ./internal/archive -count=1
 Exit: 0
 Log: $logs_root/g3-provenance.log
+Log Hash: $hash_g3_provenance
 Observed: provenance assertions pass
 
 Command: go test ./internal/architecture -count=1
 Exit: 0
 Log: $logs_root/g4-architecture.log
+Log Hash: $hash_g4_architecture
 Observed: architecture guardrails pass
 
 Command: go test ./integration -count=1
 Exit: 0
 Log: $logs_root/g5-integration.log
+Log Hash: $hash_g5_integration
 Observed: integration pass
 
 Command: go test ./pkg/smoke -count=1
 Exit: 0
 Log: $logs_root/g6-fresh-pass.log
+Log Hash: $hash_g6_fresh_pass
 Observed: fresh smoke pass
 
 Command: go test ./integration -run TestAuthSync_Red -count=1
 Exit: 1
 Log: $logs_root/red.log
+Log Hash: $hash_red
 Observed: red test intentionally failing
 
 Command: go test ./integration -run TestAuthSync_Green -count=1
 Exit: 0
 Log: $logs_root/green.log
+Log Hash: $hash_green
 Observed: green test passing after implementation
 
 Command: go test ./integration -run TestAuthSync_Blue -count=1
 Exit: 0
 Log: $logs_root/blue.log
+Log Hash: $hash_blue
 Observed: blue refactor checks pass
 EOF
 
@@ -219,6 +261,12 @@ run_taskctl claim coordinator >/dev/null
 task_file="$smoke_root/in_progress/coordinator/${task_id}.md"
 if [[ ! -f "$task_file" ]]; then
   echo "expected in-progress benchmark task not found: $task_file" >&2
+  exit 1
+fi
+
+run_taskctl benchmark-init coordinator "$task_id" >/dev/null
+if ! grep -Fq "Log Hash: pending" "$task_file"; then
+  echo "benchmark-init did not scaffold Log Hash placeholder rows" >&2
   exit 1
 fi
 
@@ -271,6 +319,7 @@ run_taskctl benchmark-score coordinator "$task_id" >/dev/null
 scorecard_json="$smoke_root/reports/coordinator/benchmark_scorecard.json"
 scorecard_md="$smoke_root/reports/coordinator/benchmark_scorecard.md"
 rerun_summary="$smoke_root/reports/coordinator/benchmark_reruns/${task_id}.json"
+review_rerun_summary="$smoke_root/reports/review/benchmark_reruns/${task_id}.json"
 [[ -f "$scorecard_json" ]] || { echo "missing scorecard json: $scorecard_json" >&2; exit 1; }
 [[ -f "$scorecard_md" ]] || { echo "missing scorecard markdown: $scorecard_md" >&2; exit 1; }
 [[ -f "$rerun_summary" ]] || { echo "missing rerun summary: $rerun_summary" >&2; exit 1; }
@@ -297,6 +346,16 @@ run_taskctl benchmark-verify coordinator "$task_id" >/dev/null
 run_taskctl benchmark-rerun coordinator "$task_id" >/dev/null
 run_taskctl benchmark-score coordinator "$task_id" >/dev/null
 run_taskctl benchmark-closeout-check coordinator "$task_id" >/dev/null
+
+[[ -f "$review_rerun_summary" ]] || { echo "missing review rerun summary: $review_rerun_summary" >&2; exit 1; }
+if [[ "$(jq -r '.agent' "$review_rerun_summary")" != "review" ]]; then
+  echo "expected closeout rerun summary owner to be review: $review_rerun_summary" >&2
+  exit 1
+fi
+if [[ "$(jq -r '[.commands[]? | select((.log_hash // "") == "")] | length' "$review_rerun_summary")" != "0" ]]; then
+  echo "expected rerun summary commands to include log_hash values: $review_rerun_summary" >&2
+  exit 1
+fi
 
 parent_task_id="benchmark-parent-inherit-smoke"
 run_taskctl create "$parent_task_id" "Benchmark parent inherit smoke" --to coordinator --from pm --priority 10 --phase closeout \
