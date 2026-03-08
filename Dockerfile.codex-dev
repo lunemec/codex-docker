@@ -10,7 +10,7 @@ ARG CLOUD_SDK_VERSION=516.0.0
 ARG KUBECTL_VERSION=v1.33.1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-  bash ca-certificates curl git docker.io python3 make g++ \
+  bash ca-certificates curl git docker.io python3 make g++ ffmpeg \
   less vim nano tree tmux fzf ripgrep fd-find jq yq zip xz-utils \
   cloc sloccount hyperfine entr httpie ncdu \
   wrk apache2-utils hey wget aria2 \
@@ -58,6 +58,10 @@ RUN pipx install uv \
   && pipx install poetry \
   && pipx install pre-commit
 
+RUN python3 -m venv /opt/voice-stt \
+  && /opt/voice-stt/bin/pip install --upgrade pip \
+  && /opt/voice-stt/bin/pip install --no-cache-dir faster-whisper requests
+
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
 RUN npm install -g @openai/codex @anthropic-ai/claude-code @google/gemini-cli @ralph-orchestrator/ralph-cli @googleworkspace/cli openclaw \
@@ -100,13 +104,18 @@ RUN set -eux; \
   chmod 0755 /usr/local/bin/kubectl
 
 COPY scripts/*.sh /opt/codex-baseline/scripts/
+COPY scripts/voice_autotranscribe.py /usr/local/bin/voice_autotranscribe.py
 COPY coordination /opt/codex-baseline/coordination
 COPY container/codex-init-workspace.sh /usr/local/bin/codex-init-workspace
 COPY container/codex-entrypoint.sh /usr/local/bin/codex-entrypoint
 
 RUN chmod +x /opt/codex-baseline/scripts/*.sh \
+  /usr/local/bin/voice_autotranscribe.py \
   /usr/local/bin/codex-init-workspace \
   /usr/local/bin/codex-entrypoint \
+  && ln -sf /opt/codex-baseline/scripts/voice-stt-start.sh /usr/local/bin/voice-stt-start \
+  && ln -sf /opt/codex-baseline/scripts/voice-stt-stop.sh /usr/local/bin/voice-stt-stop \
+  && ln -sf /opt/codex-baseline/scripts/voice-stt-once.sh /usr/local/bin/voice-stt-once \
   && rm -rf /opt/codex-baseline/coordination/runtime \
   && mkdir -p /opt/codex-baseline/coordination/runtime/logs /opt/codex-baseline/coordination/runtime/pids
 
@@ -116,12 +125,14 @@ RUN set -eux; \
   go version; rustc --version; cargo --version; \
   rg --version; fd --version; jq --version; yq --version; \
   fzf --version; cloc --version; sloccount --version; hyperfine --version; \
-  http --version; ncdu --version; command -v entr; \
+  http --version; ncdu --version; command -v entr ffmpeg; \
   claude --version; gemini --version; cursor --version; agent --version; cursor-agent --version; \
   wrk --version || true; ab -V; hey --help | head -n 2; \
   ghz --version; grpcurl --version; wget --version; aria2c --version; \
   gcloud --version | head -n 1; command -v gke-gcloud-auth-plugin kubectl kubectx kubens; gke-gcloud-auth-plugin --version >/dev/null; kubectl version --client=true >/dev/null; \
   openclaw --version; \
+  /opt/voice-stt/bin/python -c 'from faster_whisper import WhisperModel; print("faster-whisper ok")'; \
+  command -v voice-stt-start voice-stt-stop voice-stt-once; \
   ralph --version
 
 # Default: fully automatic, no sandbox/approvals (for isolated container use only)
