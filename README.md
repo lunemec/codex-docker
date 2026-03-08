@@ -327,7 +327,7 @@ Default watcher behavior:
 - Posts transcript messages to Discord when token/channel are available
 
 Default env:
-- `WHISPER_LANGUAGE=auto`
+- `WHISPER_LANGUAGE=en`
 - `WHISPER_MODEL=small`
 - `WHISPER_COMPUTE_TYPE=int8`
 

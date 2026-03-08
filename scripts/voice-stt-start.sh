@@ -4,7 +4,7 @@ set -euo pipefail
 mkdir -p /root/.openclaw/voice
 pkill -f "voice_autotranscribe.py" >/dev/null 2>&1 || true
 
-export WHISPER_LANGUAGE="${WHISPER_LANGUAGE:-auto}"
+export WHISPER_LANGUAGE="${WHISPER_LANGUAGE:-en}"
 export WHISPER_MODEL="${WHISPER_MODEL:-small}"
 export WHISPER_COMPUTE_TYPE="${WHISPER_COMPUTE_TYPE:-int8}"
 export WHISPER_BEAM_SIZE="${WHISPER_BEAM_SIZE:-5}"
