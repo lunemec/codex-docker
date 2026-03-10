@@ -1,0 +1,152 @@
+# Dockerfile
+FROM node:22-trixie
+
+ARG GO_VERSION=1.23.8
+ARG RUST_TOOLCHAIN=stable
+ARG CURSOR_AGENT_VERSION=2026.02.27-e7d2ef6
+ARG GHZ_VERSION=v0.121.0
+ARG GRPCURL_VERSION=v1.9.3
+ARG CLOUD_SDK_VERSION=516.0.0
+ARG KUBECTL_VERSION=v1.33.1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  bash ca-certificates curl git docker-cli docker-compose docker-buildx iptables python3 make g++ ffmpeg \
+  less vim nano tree tmux fzf ripgrep fd-find jq yq zip xz-utils \
+  cloc sloccount hyperfine entr httpie ncdu \
+  wrk apache2-utils hey wget aria2 \
+  kubectx \
+  procps iproute2 iputils-ping dnsutils netcat-openbsd lsof strace rsync openssh-client \
+  build-essential pkg-config cmake ninja-build libssl-dev libffi-dev \
+  python3-pip python3-venv pipx shellcheck shfmt \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN ln -sf /usr/bin/fdfind /usr/local/bin/fd
+
+RUN set -eux; \
+  arch="$(dpkg --print-architecture)"; \
+  case "$arch" in \
+    amd64) goarch='amd64' ;; \
+    arm64) goarch='arm64' ;; \
+    *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; \
+  esac; \
+  curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${goarch}.tar.gz" -o /tmp/go.tgz; \
+  rm -rf /usr/local/go; \
+  tar -C /usr/local -xzf /tmp/go.tgz; \
+  rm -f /tmp/go.tgz
+
+ENV PATH="/usr/local/go/bin:/root/.cargo/bin:/root/.local/bin:${PATH}"
+ENV RUSTUP_HOME="/root/.rustup"
+ENV CARGO_HOME="/root/.cargo"
+ENV PIPX_HOME="/opt/pipx"
+ENV PIPX_BIN_DIR="/usr/local/bin"
+
+RUN cat >/etc/profile.d/codex-paths.sh <<'EOF' \
+  && chmod 0644 /etc/profile.d/codex-paths.sh
+#!/usr/bin/env sh
+for p in /usr/local/go/bin /root/.cargo/bin /root/.local/bin; do
+  case ":$PATH:" in
+    *":$p:"*) ;;
+    *) PATH="$p:$PATH" ;;
+  esac
+done
+export PATH
+EOF
+
+RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain "${RUST_TOOLCHAIN}"
+
+RUN pipx install uv \
+  && pipx install poetry \
+  && pipx install pre-commit
+
+RUN python3 -m venv /opt/voice-stt \
+  && /opt/voice-stt/bin/pip install --upgrade pip \
+  && /opt/voice-stt/bin/pip install --no-cache-dir faster-whisper requests
+
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+RUN npm install -g @openai/codex @anthropic-ai/claude-code @google/gemini-cli @ralph-orchestrator/ralph-cli @googleworkspace/cli @aisuite/chub openclaw \
+  && mv /usr/local/bin/codex /usr/local/bin/codex-real
+
+RUN set -eux; \
+  arch="$(dpkg --print-architecture)"; \
+  case "$arch" in \
+    amd64) cursor_arch='x64' ;; \
+    arm64) cursor_arch='arm64' ;; \
+    *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; \
+  esac; \
+  cursor_root="/root/.local/share/cursor-agent/versions/${CURSOR_AGENT_VERSION}"; \
+  mkdir -p "$cursor_root" /root/.local/bin; \
+  curl -fsSL "https://downloads.cursor.com/lab/${CURSOR_AGENT_VERSION}/linux/${cursor_arch}/agent-cli-package.tar.gz" \
+    | tar --strip-components=1 -xzf - -C "$cursor_root"; \
+  ln -sf "${cursor_root}/cursor-agent" /root/.local/bin/cursor; \
+  ln -sf "${cursor_root}/cursor-agent" /root/.local/bin/agent; \
+  ln -sf "${cursor_root}/cursor-agent" /root/.local/bin/cursor-agent
+
+RUN GOBIN=/usr/local/bin go install github.com/bojand/ghz/cmd/ghz@${GHZ_VERSION} \
+  && GOBIN=/usr/local/bin go install github.com/fullstorydev/grpcurl/cmd/grpcurl@${GRPCURL_VERSION}
+
+RUN set -eux; \
+  arch="$(dpkg --print-architecture)"; \
+  case "$arch" in \
+    amd64) gcloud_arch='x86_64'; kubectl_arch='amd64' ;; \
+    arm64) gcloud_arch='arm'; kubectl_arch='arm64' ;; \
+    *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; \
+  esac; \
+  curl -fsSL "https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-${CLOUD_SDK_VERSION}-linux-${gcloud_arch}.tar.gz" -o /tmp/google-cloud-cli.tgz; \
+  tar -C /usr/local -xzf /tmp/google-cloud-cli.tgz; \
+  rm -f /tmp/google-cloud-cli.tgz; \
+  ln -sf /usr/local/google-cloud-sdk/bin/gcloud /usr/local/bin/gcloud; \
+  ln -sf /usr/local/google-cloud-sdk/bin/bq /usr/local/bin/bq; \
+  ln -sf /usr/local/google-cloud-sdk/bin/gsutil /usr/local/bin/gsutil; \
+  /usr/local/google-cloud-sdk/bin/gcloud components install gke-gcloud-auth-plugin --quiet; \
+  ln -sf /usr/local/google-cloud-sdk/bin/gke-gcloud-auth-plugin /usr/local/bin/gke-gcloud-auth-plugin; \
+  curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${kubectl_arch}/kubectl" -o /usr/local/bin/kubectl; \
+  chmod 0755 /usr/local/bin/kubectl
+
+COPY scripts/*.sh /opt/codex-baseline/scripts/
+COPY scripts/voice_autotranscribe.py /usr/local/bin/voice_autotranscribe.py
+COPY coordination /opt/codex-baseline/coordination
+COPY container/codex-init-workspace.sh /usr/local/bin/codex-init-workspace
+COPY container/codex-entrypoint.sh /usr/local/bin/codex-entrypoint
+
+RUN chmod +x /opt/codex-baseline/scripts/*.sh \
+  /usr/local/bin/voice_autotranscribe.py \
+  /usr/local/bin/codex-init-workspace \
+  /usr/local/bin/codex-entrypoint \
+  && ln -sf /opt/codex-baseline/scripts/voice-stt-start.sh /usr/local/bin/voice-stt-start \
+  && ln -sf /opt/codex-baseline/scripts/voice-stt-stop.sh /usr/local/bin/voice-stt-stop \
+  && ln -sf /opt/codex-baseline/scripts/voice-stt-once.sh /usr/local/bin/voice-stt-once \
+  && rm -rf /opt/codex-baseline/coordination/runtime \
+  && mkdir -p /opt/codex-baseline/coordination/runtime/logs /opt/codex-baseline/coordination/runtime/pids
+
+RUN set -eux; \
+  node --version; npm --version; pnpm --version; \
+  python3 --version; pip3 --version; uv --version; poetry --version; \
+  go version; rustc --version; cargo --version; \
+  rg --version; fd --version; jq --version; yq --version; \
+  fzf --version; cloc --version; sloccount --version; hyperfine --version; \
+  http --version; ncdu --version; command -v entr ffmpeg; \
+  claude --version; gemini --version; cursor --version; agent --version; cursor-agent --version; \
+  wrk --version || true; ab -V; hey --help | head -n 2; \
+  ghz --version; grpcurl --version; wget --version; aria2c --version; \
+  gcloud --version | head -n 1; command -v gke-gcloud-auth-plugin kubectl kubectx kubens; gke-gcloud-auth-plugin --version >/dev/null; kubectl version --client=true >/dev/null; \
+  docker --version; docker compose version; docker-compose --version; docker buildx version; command -v iptables; \
+  openclaw --version; \
+  /opt/voice-stt/bin/python -c 'from faster_whisper import WhisperModel; print("faster-whisper ok")'; \
+  command -v voice-stt-start voice-stt-stop voice-stt-once; \
+  ralph --version
+
+# Default: fully automatic, no sandbox/approvals (for isolated container use only)
+RUN cat >/usr/local/bin/codex <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ -f /.dockerenv ]] || { echo "Refusing outside Docker"; exit 1; }
+exec /usr/local/bin/codex-real \
+  --dangerously-bypass-approvals-and-sandbox \
+  "$@"
+EOF
+RUN chmod +x /usr/local/bin/codex
+
+ENTRYPOINT ["/usr/local/bin/codex-entrypoint"]
+WORKDIR /workspace
+CMD ["bash"]
