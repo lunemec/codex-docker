@@ -10,6 +10,8 @@ The standalone coordinator has been extracted out of this repo. Do not reintrodu
 - `README.md`: user-facing usage and scope.
 - `CHANGELOG.md`: notable behavior changes.
 - `scripts/toolbelt.sh`: host-side launcher for selective mounts into `/workspace/<basename>`.
+- `scripts/gws-scope-guard.sh`: experimental in-container `gws` scope diagnosis wrapper.
+- `scripts/verify_gws_scope_guard_contract.sh` and `scripts/verify_toolbelt_gws_scope_contract.sh`: GWS scope guard contract verifiers.
 - `container/codex-entrypoint.sh`: interactive MOTD and runtime bootstrap.
 - `container/codex-init-workspace.sh`: deprecated compatibility stub; no longer seeds coordinator assets.
 - `scripts/voice-stt-*.sh` and `scripts/voice_autotranscribe.py`: voice STT helpers baked into the image.

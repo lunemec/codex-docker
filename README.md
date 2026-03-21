@@ -138,6 +138,9 @@ Included by default:
 
 The image still bakes every remaining `scripts/*.sh` file from this repo into `/opt/codex-baseline/scripts/`. After the coordinator extraction, that set is limited to toolbelt-owned helpers such as:
 - `scripts/toolbelt.sh`
+- `scripts/gws-scope-guard.sh`
+- `scripts/verify_gws_scope_guard_contract.sh`
+- `scripts/verify_toolbelt_gws_scope_contract.sh`
 - `scripts/voice-stt-start.sh`
 - `scripts/voice-stt-stop.sh`
 - `scripts/voice-stt-once.sh`
@@ -171,7 +174,12 @@ toolbelt/
 │   ├── codex-entrypoint.sh
 │   └── codex-init-workspace.sh
 └── scripts/
+    ├── gws-scope-guard.sh
     ├── toolbelt.sh
+    ├── verify_gws_scope_guard_contract.sh
+    ├── verify_toolbelt_coordinator_boundary_contract.sh
+    ├── verify_toolbelt_coordinator_inventory_contract.sh
+    ├── verify_toolbelt_gws_scope_contract.sh
     ├── voice-stt-start.sh
     ├── voice-stt-stop.sh
     ├── voice-stt-once.sh
