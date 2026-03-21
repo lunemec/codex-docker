@@ -104,18 +104,6 @@ describe_script() {
   local script_name="$1"
 
   case "${script_name}" in
-    taskctl.sh)
-      echo "Task lifecycle helper (create/delegate/claim/done/block/ensure-agent)."
-      ;;
-    agent_worker.sh)
-      echo "Specialist worker loop (typically managed via agents_ctl.sh)."
-      ;;
-    agents_ctl.sh)
-      echo "Start/stop/status/once controller for specialist workers."
-      ;;
-    coordination_repair.sh)
-      echo "Backfill missing coordination files/prompts and core lane scaffolding."
-      ;;
     toolbelt.sh)
       echo "Host-side selective mount launcher (path args -> /workspace/<basename>)."
       ;;
