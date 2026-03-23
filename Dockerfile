@@ -65,7 +65,7 @@ RUN python3 -m venv /opt/voice-stt \
 
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
-RUN npm install -g @openai/codex @anthropic-ai/claude-code @google/gemini-cli @ralph-orchestrator/ralph-cli @googleworkspace/cli @aisuite/chub openclaw \
+RUN npm install -g @openai/codex @anthropic-ai/claude-code @google/gemini-cli @ralph-orchestrator/ralph-cli @googleworkspace/cli @aisuite/chub openclaw kimaki \
   && mv /usr/local/bin/codex /usr/local/bin/codex-real
 
 RUN set -eux; \
@@ -130,7 +130,7 @@ RUN set -eux; \
   ghz --version; grpcurl --version; wget --version; aria2c --version; \
   gcloud --version | head -n 1; command -v gke-gcloud-auth-plugin kubectl kubectx kubens; gke-gcloud-auth-plugin --version >/dev/null; kubectl version --client=true >/dev/null; \
   docker --version; docker compose version; docker-compose --version; docker buildx version; command -v iptables; \
-  openclaw --version; \
+  openclaw --version; command -v kimaki; \
   /opt/voice-stt/bin/python -c 'from faster_whisper import WhisperModel; print("faster-whisper ok")'; \
   command -v voice-stt-start voice-stt-stop voice-stt-once; \
   ralph --version

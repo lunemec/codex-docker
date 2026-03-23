@@ -16,6 +16,7 @@ SHELL_CMD="$DEFAULT_SHELL"
 WITH_DOCKER_SOCK=0
 WITH_GCLOUD=0
 WITH_GWS=0
+WITH_KIMAKI=0
 WITH_K8S=0
 AUTO_REMOVE=1
 TMPFS_SIZE="$DEFAULT_TMPFS_SIZE"
@@ -26,6 +27,7 @@ AUTH_SRC="${CODEX_AUTH_JSON_SRC:-$HOME/.codex/auth.json}"
 CONFIG_SRC="${CODEX_CONFIG_TOML_SRC:-$HOME/.codex/config.toml}"
 GCLOUD_SRC="${CODEX_GCLOUD_CONFIG_SRC:-$HOME/.config/gcloud}"
 GWS_SRC="${CODEX_GWS_CONFIG_SRC:-$HOME/.config/gws}"
+KIMAKI_SRC="${CODEX_KIMAKI_CONFIG_SRC:-$HOME/.kimaki}"
 KUBECONFIG_SRC="${CODEX_KUBECONFIG_SRC:-$HOME/.kube/config}"
 GWS_RUNTIME_DIR=""
 GWS_EXPORTED_CREDENTIALS=""
@@ -46,6 +48,7 @@ Options:
   -docker, --docker   Mount /var/run/docker.sock
   -gcloud, --gcloud   Mount host gcloud config into /run/secrets/gcloud-config (read-only)
   -gws, --gws         Export portable gws auth into container runtime config, mount gws config, and use ADC fallback when needed
+  -kimaki, --kimaki   Mount host Kimaki data dir into /root/.kimaki (read-write)
   -k8s, --k8s         Mount host kubeconfig into /run/secrets/kube-config (read-only)
   -image, --image IMAGE
                      Container image (default: toolbelt:latest)
@@ -66,11 +69,12 @@ Environment overrides:
   CODEX_CONFIG_TOML_SRC
   CODEX_GCLOUD_CONFIG_SRC
   CODEX_GWS_CONFIG_SRC
+  CODEX_KIMAKI_CONFIG_SRC
   CODEX_KUBECONFIG_SRC
 
 Examples:
   toolbelt
-  toolbelt -docker -gcloud -gws -k8s ./directory1 ./directory2
+  toolbelt -docker -gcloud -gws -kimaki -k8s ./directory1 ./directory2
   toolbelt ./directory1 ./directory2 -- bash -lc 'ls -la /workspace'
 USAGE
 }
@@ -464,6 +468,10 @@ parse_args() {
         WITH_GWS=1
         shift
         ;;
+      -kimaki|--kimaki)
+        WITH_KIMAKI=1
+        shift
+        ;;
       -k8s|--k8s)
         WITH_K8S=1
         shift
@@ -512,7 +520,7 @@ parse_args() {
 
 build_mount_args() {
   local source abs_source dest_name dest_path
-  local gcloud_abs_source gws_abs_source kubeconfig_abs_source runtime_secret_dir
+  local gcloud_abs_source gws_abs_source kimaki_abs_source kubeconfig_abs_source runtime_secret_dir
   local idx=0
   local -A seen_dest=()
   local -a args=()
@@ -582,6 +590,15 @@ build_mount_args() {
       runtime_secret_dir="$(dirname "${GWS_ADC_SOURCE}")"
       args+=( -v "${runtime_secret_dir}:${GWS_ADC_MOUNT}:ro" )
     fi
+  fi
+
+  if [[ "$WITH_KIMAKI" -eq 1 ]]; then
+    kimaki_abs_source="$(abs_path "$KIMAKI_SRC")"
+    if [[ ! -d "$kimaki_abs_source" ]]; then
+      echo "requested -kimaki/--kimaki but Kimaki data directory is not available: $KIMAKI_SRC" >&2
+      exit 1
+    fi
+    args+=( -v "${kimaki_abs_source}:/root/.kimaki" )
   fi
 
   if [[ "$WITH_K8S" -eq 1 ]]; then

@@ -9,12 +9,15 @@ All notable changes to this project are documented in this file.
 - `codex-init-workspace` is now a deprecated compatibility stub that exits with guidance instead of seeding embedded coordinator assets.
 - The container MOTD now points users at `/workspace/coordinator` when that standalone repository is present and otherwise states that coordinator assets are no longer embedded in the image.
 - `README.md`, `container/codex-entrypoint.sh`, and `container/codex-init-workspace.sh` now describe the coordinator split as the steady-state boundary for this phase: `toolbelt` only references an external checkout at `/workspace/coordinator`, while `codex-init-workspace` remains redirect-only.
+- `scripts/toolbelt.sh` now supports `-kimaki` / `--kimaki`, which mounts host Kimaki state from `~/.kimaki` to `/root/.kimaki` by default; `CODEX_KIMAKI_CONFIG_SRC` overrides the host source path.
 
 ### Removed
 - Embedded coordinator baseline files from the `toolbelt` Docker build context.
 - Coordinator quickstart/bootstrap documentation from `toolbelt` README and AGENTS guidance.
 
 ### Added
+- Global npm install for `kimaki` in the development image.
+- `scripts/verify_toolbelt_kimaki_contract.sh` launcher contract verifier for `-kimaki` default mounting, env override handling, and missing-directory failures.
 - `scripts/verify_toolbelt_coordinator_boundary_contract.sh` contract verifier for steady-state coordinator boundary messaging, launcher mount semantics, entrypoint external-checkout detection, and `codex-init-workspace` redirect behavior.
 - Experimental/incomplete `scripts/gws-scope-guard.sh` image-baked `gws` wrapper that preflights Workspace API scopes for direct in-container `gws` calls and adds a targeted hint when `403 insufficientPermissions` still reaches the user.
 - `scripts/verify_gws_scope_guard_contract.sh` contract verifier for the experimental in-container `gws` scope guard, including mismatch blocking and fallback 403 hinting.

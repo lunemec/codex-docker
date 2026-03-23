@@ -151,6 +151,8 @@ show_motd() {
   printf '    Launch Ralph CLI.\n'
   printf '  %b\n' "${yellow}openclaw${reset}"
   printf '    Launch OpenClaw CLI.\n'
+  printf '  %b\n' "${yellow}kimaki${reset}"
+  printf '    Launch Kimaki Discord bridge CLI.\n'
   printf '  %b\n' "${yellow}claude${reset}"
   printf '    Launch Anthropic Claude Code CLI.\n'
   printf '  %b\n' "${yellow}gemini${reset}"
