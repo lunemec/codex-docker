@@ -1,34 +1,45 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DEFAULT_IMAGE="${CODEX_DEV_IMAGE:-toolbelt:latest}"
-DEFAULT_SHELL="${CODEX_DEV_SHELL:-bash}"
+DEFAULT_IMAGE="${TOOLBELT_IMAGE:-toolbelt:latest}"
+DEFAULT_SHELL="${TOOLBELT_SHELL:-bash}"
 DEFAULT_WORKDIR="/workspace"
-DEFAULT_TMPFS_SIZE="${CODEX_TOOLBELT_TMPFS_SIZE:-512m}"
+DEFAULT_TMPFS_SIZE="${TOOLBELT_TMPFS_SIZE:-512m}"
 GWS_CREDENTIALS_MOUNT="/run/secrets/gws-credentials"
 GWS_CREDENTIALS_DEST="${GWS_CREDENTIALS_MOUNT}/credentials.json"
 GWS_ADC_MOUNT="/run/secrets/gws-adc"
 GWS_ADC_DEST="${GWS_ADC_MOUNT}/application_default_credentials.json"
+OPENCODE_CONFIG_MOUNT="/run/secrets/opencode-config"
 
+PROVIDER=""
 IMAGE="$DEFAULT_IMAGE"
 WORKDIR="$DEFAULT_WORKDIR"
 SHELL_CMD="$DEFAULT_SHELL"
 WITH_DOCKER_SOCK=0
 WITH_GCLOUD=0
 WITH_GWS=0
+WITH_OPENCODE=0
 WITH_KIMAKI=0
 WITH_K8S=0
+WITH_GITHUB=0
+WITH_GITLAB=0
 AUTO_REMOVE=1
 TMPFS_SIZE="$DEFAULT_TMPFS_SIZE"
 MOUNTS=()
 MOUNT_PWD_TO_WORKSPACE=0
 CMD=()
-AUTH_SRC="${CODEX_AUTH_JSON_SRC:-$HOME/.codex/auth.json}"
-CONFIG_SRC="${CODEX_CONFIG_TOML_SRC:-$HOME/.codex/config.toml}"
-GCLOUD_SRC="${CODEX_GCLOUD_CONFIG_SRC:-$HOME/.config/gcloud}"
-GWS_SRC="${CODEX_GWS_CONFIG_SRC:-$HOME/.config/gws}"
-KIMAKI_SRC="${CODEX_KIMAKI_CONFIG_SRC:-$HOME/.kimaki}"
-KUBECONFIG_SRC="${CODEX_KUBECONFIG_SRC:-$HOME/.kube/config}"
+AUTH_SRC="${TOOLBELT_CODEX_AUTH_SRC:-$HOME/.codex/auth.json}"
+CONFIG_SRC="${TOOLBELT_CODEX_CONFIG_SRC:-$HOME/.codex/config.toml}"
+CLAUDE_DIR_SRC="${TOOLBELT_CLAUDE_DIR_SRC:-$HOME/.claude}"
+CLAUDE_JSON_SRC="${TOOLBELT_CLAUDE_JSON_SRC:-$HOME/.claude.json}"
+ANTHROPIC_API_KEY_VALUE="${ANTHROPIC_API_KEY:-}"
+GCLOUD_SRC="${TOOLBELT_GCLOUD_CONFIG_SRC:-$HOME/.config/gcloud}"
+GWS_SRC="${TOOLBELT_GWS_CONFIG_SRC:-$HOME/.config/gws}"
+OPENCODE_CONFIG_SRC="${TOOLBELT_OPENCODE_CONFIG_SRC:-$HOME/.config/opencode}"
+KIMAKI_SRC="${TOOLBELT_KIMAKI_CONFIG_SRC:-$HOME/.kimaki}"
+KUBECONFIG_SRC="${TOOLBELT_KUBECONFIG_SRC:-$HOME/.kube/config}"
+GITHUB_CONFIG_SRC="${TOOLBELT_GITHUB_CONFIG_SRC:-$HOME/.config/gh}"
+GITLAB_CONFIG_SRC="${TOOLBELT_GITLAB_CONFIG_SRC:-$HOME/.config/glab-cli}"
 GWS_RUNTIME_DIR=""
 GWS_EXPORTED_CREDENTIALS=""
 GWS_ADC_SOURCE=""
@@ -37,19 +48,28 @@ GWS_EXPORT_ERROR=""
 usage() {
   cat <<'USAGE'
 Usage:
-  toolbelt [options] [directory1 directory2 ...] [-- CMD...]
+  toolbelt <provider> [options] [directory1 directory2 ...] [-- CMD...]
 
 Description:
   Run toolbelt:latest with selective mounts.
+  A provider subcommand (codex or claude) is required.
   If no directories are provided, the current directory is mounted to /workspace.
   Each provided directory/path is mounted to /workspace/<basename(path)>.
+
+Providers:
+  codex                 Mount Codex credentials (~/.codex/auth.json, config.toml)
+  claude                Mount Claude config (~/.claude/) and pass ANTHROPIC_API_KEY
 
 Options:
   -docker, --docker   Mount /var/run/docker.sock
   -gcloud, --gcloud   Mount host gcloud config into /run/secrets/gcloud-config (read-only)
   -gws, --gws         Export portable gws auth into container runtime config, mount gws config, and use ADC fallback when needed
-  -kimaki, --kimaki   Mount host Kimaki data dir into /root/.kimaki (read-write)
+  -opencode, --opencode
+                     Require host OpenCode config and mount it into /run/secrets/opencode-config (read-only)
+  -kimaki, --kimaki   Mount host Kimaki data dir into /home/coder/.kimaki (read-write)
   -k8s, --k8s         Mount host kubeconfig into /run/secrets/kube-config (read-only)
+  -github, --github   Mount host GitHub CLI config (~/.config/gh) into container (read-only)
+  -gitlab, --gitlab   Mount host GitLab CLI config (~/.config/glab-cli) into container (read-only)
   -image, --image IMAGE
                      Container image (default: toolbelt:latest)
   -workdir, --workdir, -w DIR
@@ -57,25 +77,32 @@ Options:
   -shell, --shell SHELL
                      Default interactive shell when no CMD is provided (default: bash)
   -tmpfs-size, --tmpfs-size SIZE
-                     /root/.codex tmpfs size (default: 512m)
+                     /home/coder/.codex tmpfs size (default: 512m)
   -keep, --keep       Keep container after exit (omit --rm)
   -h, -help, --help   Show this help
 
 Environment overrides:
-  CODEX_DEV_IMAGE
-  CODEX_DEV_SHELL
-  CODEX_TOOLBELT_TMPFS_SIZE
-  CODEX_AUTH_JSON_SRC
-  CODEX_CONFIG_TOML_SRC
-  CODEX_GCLOUD_CONFIG_SRC
-  CODEX_GWS_CONFIG_SRC
-  CODEX_KIMAKI_CONFIG_SRC
-  CODEX_KUBECONFIG_SRC
+  TOOLBELT_IMAGE
+  TOOLBELT_SHELL
+  TOOLBELT_TMPFS_SIZE
+  TOOLBELT_CODEX_AUTH_SRC
+  TOOLBELT_CODEX_CONFIG_SRC
+  TOOLBELT_CLAUDE_DIR_SRC
+  TOOLBELT_CLAUDE_JSON_SRC
+  TOOLBELT_GCLOUD_CONFIG_SRC
+  TOOLBELT_GWS_CONFIG_SRC
+  TOOLBELT_OPENCODE_CONFIG_SRC
+  TOOLBELT_KIMAKI_CONFIG_SRC
+  TOOLBELT_KUBECONFIG_SRC
+  TOOLBELT_GITHUB_CONFIG_SRC
+  TOOLBELT_GITLAB_CONFIG_SRC
+  ANTHROPIC_API_KEY
 
 Examples:
-  toolbelt
-  toolbelt -docker -gcloud -gws -kimaki -k8s ./directory1 ./directory2
-  toolbelt ./directory1 ./directory2 -- bash -lc 'ls -la /workspace'
+  toolbelt codex
+  toolbelt claude
+  toolbelt codex -docker -gcloud -gws -kimaki -k8s ./directory1 ./directory2
+  toolbelt claude -k8s ./directory1 -- bash -lc 'ls -la /workspace'
 USAGE
 }
 
@@ -110,6 +137,24 @@ require_docker() {
     echo "cannot connect to Docker daemon" >&2
     exit 1
   }
+}
+
+extract_claude_oauth_token() {
+  local raw
+  raw="$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null)" || return 1
+  python3 - "$raw" <<'PY'
+import json, sys
+try:
+    data = json.loads(sys.argv[1])
+    oauth = data.get("claudeAiOauth", {})
+    token = oauth.get("accessToken", "")
+    if token:
+        print(token)
+    else:
+        sys.exit(1)
+except (json.JSONDecodeError, KeyError):
+    sys.exit(1)
+PY
 }
 
 cleanup_runtime_artifacts() {
@@ -263,7 +308,7 @@ extract_gws_granted_scopes() {
   local token_response=""
   local token_uri=""
   local tokeninfo_response=""
-  local tokeninfo_url="${CODEX_GWS_TOKENINFO_URL:-https://oauth2.googleapis.com/tokeninfo}"
+  local tokeninfo_url="${TOOLBELT_GWS_TOKENINFO_URL:-https://oauth2.googleapis.com/tokeninfo}"
   local field_name
   local -a GWS_SCOPE_LINES=()
 
@@ -454,6 +499,21 @@ prepare_gws_runtime_inputs() {
 }
 
 parse_args() {
+  # Provider subcommand is required as the first positional argument.
+  case "${1:-}" in
+    codex)  PROVIDER="codex"; shift ;;
+    claude) PROVIDER="claude"; shift ;;
+    -h|-help|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "error: provider subcommand required (codex or claude)" >&2
+      usage
+      exit 1
+      ;;
+  esac
+
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -docker|--docker)
@@ -468,12 +528,25 @@ parse_args() {
         WITH_GWS=1
         shift
         ;;
+      -opencode|--opencode)
+        WITH_OPENCODE=1
+        shift
+        ;;
       -kimaki|--kimaki)
+        WITH_OPENCODE=1
         WITH_KIMAKI=1
         shift
         ;;
       -k8s|--k8s)
         WITH_K8S=1
+        shift
+        ;;
+      -github|--github)
+        WITH_GITHUB=1
+        shift
+        ;;
+      -gitlab|--gitlab)
+        WITH_GITLAB=1
         shift
         ;;
       -image|--image)
@@ -520,7 +593,7 @@ parse_args() {
 
 build_mount_args() {
   local source abs_source dest_name dest_path
-  local gcloud_abs_source gws_abs_source kimaki_abs_source kubeconfig_abs_source runtime_secret_dir
+  local gcloud_abs_source gws_abs_source opencode_abs_source kimaki_abs_source kubeconfig_abs_source runtime_secret_dir
   local idx=0
   local -A seen_dest=()
   local -a args=()
@@ -532,16 +605,9 @@ build_mount_args() {
       exit 1
     fi
 
-    if [[ "$MOUNT_PWD_TO_WORKSPACE" -eq 1 && "$idx" -eq 0 ]]; then
-      dest_path="/workspace"
-    else
-      dest_name="$(basename "$abs_source")"
-      if [[ "$dest_name" == "." || "$dest_name" == "/" ]]; then
-        echo "cannot derive mount name from: $source" >&2
-        exit 1
-      fi
-      dest_path="/workspace/${dest_name}"
-    fi
+    # Mount at the same absolute path as on the host so path references
+    # (configs, error messages, git hooks) remain valid inside the container.
+    dest_path="${abs_source}"
 
     if [[ -n "${seen_dest[$dest_path]:-}" ]]; then
       echo "mount destination collision at ${dest_path}: $source and ${seen_dest[$dest_path]}" >&2
@@ -554,12 +620,23 @@ build_mount_args() {
     idx=$((idx + 1))
   done
 
-  if [[ -f "$AUTH_SRC" ]]; then
-    args+=( -v "${AUTH_SRC}:/run/secrets/codex-auth.json:ro" )
-  fi
-
-  if [[ -f "$CONFIG_SRC" ]]; then
-    args+=( -v "${CONFIG_SRC}:/run/secrets/codex-config.toml:ro" )
+  if [[ "$PROVIDER" == "codex" ]]; then
+    if [[ -f "$AUTH_SRC" ]]; then
+      args+=( -v "${AUTH_SRC}:/run/secrets/codex-auth.json:ro" )
+    fi
+    if [[ -f "$CONFIG_SRC" ]]; then
+      args+=( -v "${CONFIG_SRC}:/run/secrets/codex-config.toml:ro" )
+    fi
+  elif [[ "$PROVIDER" == "claude" ]]; then
+    local claude_abs_source claude_json_abs_source
+    claude_abs_source="$(abs_path "$CLAUDE_DIR_SRC")"
+    if [[ -d "$claude_abs_source" ]]; then
+      args+=( -v "${claude_abs_source}:${HOME}/.claude" )
+    fi
+    claude_json_abs_source="$(abs_path "$CLAUDE_JSON_SRC")"
+    if [[ -f "$claude_json_abs_source" ]]; then
+      args+=( -v "${claude_json_abs_source}:/run/secrets/claude-config.json:ro" )
+    fi
   fi
 
   if [[ "$WITH_DOCKER_SOCK" -eq 1 ]]; then
@@ -592,13 +669,25 @@ build_mount_args() {
     fi
   fi
 
+  opencode_abs_source="$(abs_path "$OPENCODE_CONFIG_SRC")"
+  if [[ -d "$opencode_abs_source" ]]; then
+    args+=( -v "${opencode_abs_source}:${OPENCODE_CONFIG_MOUNT}:ro" )
+  elif [[ "$WITH_OPENCODE" -eq 1 ]]; then
+    if [[ "$WITH_KIMAKI" -eq 1 ]]; then
+      echo "requested -opencode/--opencode (implicitly via -kimaki/--kimaki) but OpenCode config directory is not available: $OPENCODE_CONFIG_SRC" >&2
+    else
+      echo "requested -opencode/--opencode but OpenCode config directory is not available: $OPENCODE_CONFIG_SRC" >&2
+    fi
+    exit 1
+  fi
+
   if [[ "$WITH_KIMAKI" -eq 1 ]]; then
     kimaki_abs_source="$(abs_path "$KIMAKI_SRC")"
     if [[ ! -d "$kimaki_abs_source" ]]; then
       echo "requested -kimaki/--kimaki but Kimaki data directory is not available: $KIMAKI_SRC" >&2
       exit 1
     fi
-    args+=( -v "${kimaki_abs_source}:/root/.kimaki" )
+    args+=( -v "${kimaki_abs_source}:/home/coder/.kimaki" )
   fi
 
   if [[ "$WITH_K8S" -eq 1 ]]; then
@@ -610,11 +699,45 @@ build_mount_args() {
     args+=( -v "${kubeconfig_abs_source}:/run/secrets/kube-config:ro" )
   fi
 
+  if [[ "$WITH_GITHUB" -eq 1 ]]; then
+    local github_abs_source
+    github_abs_source="$(abs_path "$GITHUB_CONFIG_SRC")"
+    if [[ ! -d "$github_abs_source" ]]; then
+      echo "requested -github/--github but GitHub CLI config directory is not available: $GITHUB_CONFIG_SRC" >&2
+      exit 1
+    fi
+    args+=( -v "${github_abs_source}:/run/secrets/gh-config:ro" )
+  fi
+
+  if [[ "$WITH_GITLAB" -eq 1 ]]; then
+    local gitlab_abs_source
+    gitlab_abs_source="$(abs_path "$GITLAB_CONFIG_SRC")"
+    if [[ ! -d "$gitlab_abs_source" ]]; then
+      echo "requested -gitlab/--gitlab but GitLab CLI config directory is not available: $GITLAB_CONFIG_SRC" >&2
+      exit 1
+    fi
+    args+=( -v "${gitlab_abs_source}:/run/secrets/glab-config:ro" )
+  fi
+
   printf '%s\n' "${args[@]}"
 }
 
 build_env_args() {
   local -a args=()
+
+  args+=( -e "TOOLBELT_PROVIDER=${PROVIDER}" )
+  args+=( -e "TOOLBELT_HOST_HOME=${HOME}" )
+
+  if [[ "$PROVIDER" == "claude" ]]; then
+    local claude_oauth_token=""
+    if [[ -n "${ANTHROPIC_API_KEY_VALUE}" ]]; then
+      args+=( -e "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY_VALUE}" )
+    elif claude_oauth_token="$(extract_claude_oauth_token)"; then
+      args+=( -e "CLAUDE_CODE_OAUTH_TOKEN=${claude_oauth_token}" )
+    else
+      warn "no ANTHROPIC_API_KEY set and could not extract Claude OAuth token from keychain"
+    fi
+  fi
 
   if [[ -n "${GWS_EXPORTED_CREDENTIALS}" ]]; then
     args+=( -e "GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE=${GWS_CREDENTIALS_DEST}" )
@@ -652,9 +775,12 @@ run_container() {
 
   run_args+=(
     run
-    --tmpfs "/root/.codex:rw,nosuid,nodev,size=${TMPFS_SIZE}"
     -w "$WORKDIR"
   )
+
+  if [[ "$PROVIDER" == "codex" ]]; then
+    run_args+=( --tmpfs "/home/coder/.codex:rw,nosuid,nodev,size=${TMPFS_SIZE}" )
+  fi
 
   if [[ "$AUTO_REMOVE" -eq 1 ]]; then
     run_args+=( --rm )
@@ -683,6 +809,7 @@ main() {
   if [[ ${#MOUNTS[@]} -eq 0 ]]; then
     MOUNTS+=("$(pwd)")
     MOUNT_PWD_TO_WORKSPACE=1
+    WORKDIR="$(pwd)"
   fi
 
   require_docker

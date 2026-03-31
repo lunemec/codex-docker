@@ -16,12 +16,34 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   cloc sloccount hyperfine entr httpie xh ncdu \
   wrk apache2-utils hey wget aria2 \
   kubectx \
-  procps iproute2 iputils-ping dnsutils netcat-openbsd lsof strace rsync openssh-client \
+  sudo procps iproute2 iputils-ping dnsutils netcat-openbsd lsof strace rsync openssh-client \
   build-essential pkg-config cmake ninja-build libssl-dev libffi-dev \
   python3-pip python3-venv pipx shellcheck shfmt \
   && rm -rf /var/lib/apt/lists/*
 
 RUN ln -sf /usr/bin/fdfind /usr/local/bin/fd
+
+RUN set -eux; \
+  curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+    -o /usr/share/keyrings/githubcli-archive-keyring.gpg; \
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+    > /etc/apt/sources.list.d/github-cli.list; \
+  apt-get update && apt-get install -y --no-install-recommends gh \
+  && rm -rf /var/lib/apt/lists/*
+
+ARG GLAB_VERSION=1.90.0
+RUN set -eux; \
+  arch="$(dpkg --print-architecture)"; \
+  case "$arch" in \
+    amd64) glab_arch='x86_64' ;; \
+    arm64) glab_arch='arm64' ;; \
+    *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; \
+  esac; \
+  curl -fsSL "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/glab_${GLAB_VERSION}_linux_${glab_arch}.tar.gz" \
+    -o /tmp/glab.tar.gz; \
+  tar -xzf /tmp/glab.tar.gz -C /tmp; \
+  install -m 0755 /tmp/bin/glab /usr/local/bin/glab; \
+  rm -rf /tmp/glab.tar.gz /tmp/bin
 
 RUN set -eux; \
   arch="$(dpkg --print-architecture)"; \
@@ -65,7 +87,7 @@ RUN python3 -m venv /opt/voice-stt \
 
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
-RUN npm install -g @openai/codex @anthropic-ai/claude-code @google/gemini-cli @ralph-orchestrator/ralph-cli @googleworkspace/cli @aisuite/chub openclaw kimaki \
+RUN npm install -g @openai/codex @anthropic-ai/claude-code @google/gemini-cli opencode-ai @ralph-orchestrator/ralph-cli @googleworkspace/cli @aisuite/chub openclaw kimaki context-mode \
   && mv /usr/local/bin/codex /usr/local/bin/codex-real
 
 RUN set -eux; \
@@ -87,6 +109,20 @@ RUN GOBIN=/usr/local/bin go install github.com/bojand/ghz/cmd/ghz@${GHZ_VERSION}
   && GOBIN=/usr/local/bin go install github.com/fullstorydev/grpcurl/cmd/grpcurl@${GRPCURL_VERSION} \
   && GOBIN=/usr/local/bin go install github.com/rs/curlie@${CURLIE_VERSION}
 
+RUN mkdir -p /home/coder/.config/opencode \
+  && cat >/home/coder/.config/opencode/opencode.json <<'EOF'
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "context-mode": {
+      "type": "local",
+      "command": ["context-mode"]
+    }
+  },
+  "plugin": ["context-mode"]
+}
+EOF
+
 RUN set -eux; \
   arch="$(dpkg --print-architecture)"; \
   case "$arch" in \
@@ -105,18 +141,16 @@ RUN set -eux; \
   curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${kubectl_arch}/kubectl" -o /usr/local/bin/kubectl; \
   chmod 0755 /usr/local/bin/kubectl
 
-COPY scripts/*.sh /opt/codex-baseline/scripts/
+COPY scripts/*.sh /opt/toolbelt/scripts/
 COPY scripts/voice_autotranscribe.py /usr/local/bin/voice_autotranscribe.py
-COPY container/codex-init-workspace.sh /usr/local/bin/codex-init-workspace
-COPY container/codex-entrypoint.sh /usr/local/bin/codex-entrypoint
+COPY container/toolbelt-entrypoint.sh /usr/local/bin/toolbelt-entrypoint
 
-RUN chmod +x /opt/codex-baseline/scripts/*.sh \
+RUN chmod +x /opt/toolbelt/scripts/*.sh \
   /usr/local/bin/voice_autotranscribe.py \
-  /usr/local/bin/codex-init-workspace \
-  /usr/local/bin/codex-entrypoint \
-  && ln -sf /opt/codex-baseline/scripts/voice-stt-start.sh /usr/local/bin/voice-stt-start \
-  && ln -sf /opt/codex-baseline/scripts/voice-stt-stop.sh /usr/local/bin/voice-stt-stop \
-  && ln -sf /opt/codex-baseline/scripts/voice-stt-once.sh /usr/local/bin/voice-stt-once
+  /usr/local/bin/toolbelt-entrypoint \
+  && ln -sf /opt/toolbelt/scripts/voice-stt-start.sh /usr/local/bin/voice-stt-start \
+  && ln -sf /opt/toolbelt/scripts/voice-stt-stop.sh /usr/local/bin/voice-stt-stop \
+  && ln -sf /opt/toolbelt/scripts/voice-stt-once.sh /usr/local/bin/voice-stt-once
 
 RUN set -eux; \
   node --version; npm --version; pnpm --version; \
@@ -125,7 +159,7 @@ RUN set -eux; \
   rg --version; fd --version; jq --version; yq --version; \
   fzf --version; cloc --version; sloccount --version; hyperfine --version; \
   http --version; xh --version; curlie --version; ncdu --version; command -v entr ffmpeg; \
-  claude --version; gemini --version; cursor --version; agent --version; cursor-agent --version; \
+  claude --version; gemini --version; opencode --version; cursor --version; agent --version; cursor-agent --version; \
   wrk --version || true; ab -V; hey --help | head -n 2; \
   ghz --version; grpcurl --version; wget --version; aria2c --version; \
   gcloud --version | head -n 1; command -v gke-gcloud-auth-plugin kubectl kubectx kubens; gke-gcloud-auth-plugin --version >/dev/null; kubectl version --client=true >/dev/null; \
@@ -133,7 +167,9 @@ RUN set -eux; \
   openclaw --version; command -v kimaki; \
   /opt/voice-stt/bin/python -c 'from faster_whisper import WhisperModel; print("faster-whisper ok")'; \
   command -v voice-stt-start voice-stt-stop voice-stt-once; \
-  ralph --version
+  ralph --version; \
+  context-mode --version; \
+  gh --version; glab --version
 
 # Default: fully automatic, no sandbox/approvals (for isolated container use only)
 RUN cat >/usr/local/bin/codex <<'EOF'
@@ -146,6 +182,10 @@ exec /usr/local/bin/codex-real \
 EOF
 RUN chmod +x /usr/local/bin/codex
 
-ENTRYPOINT ["/usr/local/bin/codex-entrypoint"]
-WORKDIR /workspace
+
+RUN useradd -m -s /bin/bash -d /home/coder coder \
+  && echo 'coder ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/coder \
+  && chmod 0440 /etc/sudoers.d/coder
+
+ENTRYPOINT ["/usr/local/bin/toolbelt-entrypoint"]
 CMD ["bash"]
