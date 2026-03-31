@@ -86,6 +86,7 @@ run_toolbelt_case() {
   local kimaki_src_override=""
 
   mkdir -p "${fakebin}" "${workdir}" "${home_dir}"
+  mkdir -p "${home_dir}/.config/opencode"
 
   case "${kimaki_mode}" in
     default)
@@ -134,11 +135,14 @@ trap cleanup EXIT
 run_toolbelt_case default-mount default -kimaki
 [[ "${CASE_STATUS}" -eq 0 ]] || fail "default-mount should succeed"
 assert_contains "${CASE_DOCKER_LOG}" "-v $(canonical_path "${TMP_ROOT}/default-mount/cwd"):/workspace" "default workspace mount"
+assert_contains "${CASE_DOCKER_LOG}" "-v $(canonical_path "${TMP_ROOT}/default-mount/home/.config/opencode"):/run/secrets/opencode-config:ro" "default implied opencode mount"
 assert_contains "${CASE_DOCKER_LOG}" "-v $(canonical_path "${TMP_ROOT}/default-mount/home/.kimaki"):/root/.kimaki" "default kimaki mount"
 assert_not_contains "${CASE_DOCKER_LOG}" "$(canonical_path "${TMP_ROOT}/default-mount/home/.kimaki"):/root/.kimaki:ro" "default kimaki mount mode"
+assert_not_contains "${CASE_DOCKER_LOG}" "/root/.config/opencode" "default should not bind host opencode home directly"
 
 run_toolbelt_case env-override override -kimaki
 [[ "${CASE_STATUS}" -eq 0 ]] || fail "env-override should succeed"
+assert_contains "${CASE_DOCKER_LOG}" "-v $(canonical_path "${TMP_ROOT}/env-override/home/.config/opencode"):/run/secrets/opencode-config:ro" "override implied opencode mount"
 assert_contains "${CASE_DOCKER_LOG}" "-v $(canonical_path "${TMP_ROOT}/env-override/kimaki-custom"):/root/.kimaki" "override kimaki mount"
 assert_not_contains "${CASE_DOCKER_LOG}" "-v $(canonical_path "${TMP_ROOT}/env-override/home/.kimaki"):/root/.kimaki" "override should replace default kimaki source"
 
