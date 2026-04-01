@@ -15,7 +15,7 @@ Installed toolchains and CLIs include:
 - Rust (`rustup`, `cargo`, `rustc`)
 - Dev/system tools: `git`, Docker client tooling (`docker`, `docker buildx`, Compose v2 via both `docker compose` and `docker-compose`), `iptables`, `fzf`, `rg`, `fd`, `jq`, `yq`, `cloc`, `sloccount`, `hyperfine`, `wrk`, `ab`, `hey`, `ghz`, `grpcurl`, `httpie`, `xh`, `curlie`, `wget`, `aria2`, `entr`, `ncdu`, `tmux`, `shellcheck`, `shfmt`, and more
 - Cloud/Kubernetes CLIs: `gcloud`, `gke-gcloud-auth-plugin`, `kubectl`, `kubectx`, `kubens`
-- AI CLIs: `codex`, `claude`, `gemini`, `opencode`, and Cursor Agent as `cursor` (`agent`/`cursor-agent` aliases)
+- AI CLIs: `codex`, `claude`, `gemini`, `opencode`, `forge` (ForgeCode), and Cursor Agent as `cursor` (`agent`/`cursor-agent` aliases)
 - Workspace CLIs: `ralph`, `openclaw`, `kimaki`, and `@googleworkspace/cli`
 - `codex` wrapper and `codex-real`
 
@@ -23,7 +23,11 @@ The `codex` wrapper is preserved as:
 - `/usr/local/bin/codex` -> runs `codex-real` with Docker-only guard and `--dangerously-bypass-approvals-and-sandbox`
 - `/usr/local/bin/codex-real` -> original binary from npm install
 
-Note: `claude` is not wrapped because `--dangerously-skip-permissions` cannot be used as root. Claude Code runs as the original binary; use interactive permission prompts or pass `--permission-mode` flags manually.
+The `claude` wrapper is preserved as:
+- `/usr/local/bin/claude` -> runs `claude-real` with Docker-only guard and `--dangerously-skip-permissions`
+- `/usr/local/bin/claude-real` -> original binary from npm install
+
+`forge` (ForgeCode) is installed as a direct binary from the upstream release — no wrapper needed since ForgeCode runs unrestricted by default. Provider credentials are passed in via the host's `~/forge/` directory.
 
 `opencode` is also baked into the image as a first-class CLI via the upstream `opencode-ai` package, so you can invoke `opencode` directly inside the container.
 
@@ -68,7 +72,7 @@ Common variants:
 command -v node npm pnpm python3 pip3 uv poetry go rustc cargo \
   fzf rg fd jq yq cloc sloccount hyperfine wrk ab hey ghz grpcurl http xh curlie wget aria2c entr ncdu \
   gcloud gke-gcloud-auth-plugin kubectl kubectx kubens docker docker-compose iptables \
-  codex codex-real claude gemini opencode cursor agent cursor-agent openclaw kimaki
+  codex codex-real claude claude-real forge gemini opencode cursor agent cursor-agent openclaw kimaki
 ```
 
 ## Selective Mount Workflow
@@ -81,6 +85,12 @@ scripts/toolbelt.sh codex
 
 # Mount current directory with Claude credentials (requires ANTHROPIC_API_KEY)
 scripts/toolbelt.sh claude
+
+# Mount current directory with ForgeCode credentials (mounts ~/forge/)
+scripts/toolbelt.sh forge
+
+# Mount current directory with Claude + ForgeCode side-by-side
+scripts/toolbelt.sh claude -forge
 
 # Mount only selected paths under /workspace/<basename>
 scripts/toolbelt.sh codex ./directory1 ./directory2
@@ -99,12 +109,14 @@ scripts/toolbelt.sh claude -k8s ./directory1 -- bash -lc 'ls -la /workspace'
 ```
 
 Behavior summary:
-- A provider subcommand (`codex` or `claude`) is required as the first argument.
+- A provider subcommand (`codex`, `claude`, or `forge`) is required as the first argument.
 - If no positional paths are provided, the current directory is mounted at `/workspace`.
 - Each positional path becomes one mount at `/workspace/<basename(path)>`.
 - Docker socket is opt-in via `-docker` / `--docker`.
 - `codex` provider: `/root/.codex` is mounted as tmpfs (`512m` default); `~/.codex/auth.json` and `~/.codex/config.toml` are mounted read-only when present.
 - `claude` provider: `~/.claude/` is mounted read-only to `/run/secrets/claude-config`; `ANTHROPIC_API_KEY` is passed through when set on the host.
+- `forge` provider: `~/forge/` is mounted read-only to `/run/secrets/forge-config`; entrypoint hydrates `/home/coder/.forge/`.
+- `-forge` / `--forge` (claude provider only): co-mounts ForgeCode config alongside Claude config so both CLIs are available with credentials in the same session.
 - `-gcloud` / `--gcloud` mounts host `~/.config/gcloud` read-only to `/run/secrets/gcloud-config`; entrypoint hydrates `/root/.config/gcloud`.
 - `-gws` / `--gws` mounts host `~/.config/gws`, exports portable host `gws` credentials when available, and sets `GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE=/run/secrets/gws-credentials/credentials.json` inside the container.
 - `-gws` / `--gws` still hydrates `~/.config/gws` for compatibility and uses ADC as fallback when exported credentials are unavailable.
@@ -117,7 +129,7 @@ Behavior summary:
 - Shell-wrapped launcher commands such as `-- bash -lc 'gws ...'` intentionally skip host-side scope preflight because the launcher cannot infer the eventual `gws` method safely.
 - After rebuilding the image, the container entrypoint also installs an experimental `gws` wrapper that preflights direct in-container `gws <service> <resource> <method>` calls and appends a scope hint if a raw `403 insufficientPermissions` still bubbles up.
 - `-k8s` / `--k8s` mounts host `~/.kube/config` read-only to `/run/secrets/kube-config`; entrypoint hydrates `/root/.kube/config`.
-- Override credential source paths with `TOOLBELT_CLAUDE_DIR_SRC`, `TOOLBELT_GCLOUD_CONFIG_SRC`, `TOOLBELT_GWS_CONFIG_SRC`, `TOOLBELT_OPENCODE_CONFIG_SRC`, `TOOLBELT_KIMAKI_CONFIG_SRC`, and `TOOLBELT_KUBECONFIG_SRC`.
+- Override credential source paths with `TOOLBELT_CLAUDE_DIR_SRC`, `TOOLBELT_FORGE_DIR_SRC`, `TOOLBELT_GCLOUD_CONFIG_SRC`, `TOOLBELT_GWS_CONFIG_SRC`, `TOOLBELT_OPENCODE_CONFIG_SRC`, `TOOLBELT_KIMAKI_CONFIG_SRC`, and `TOOLBELT_KUBECONFIG_SRC`.
 
 Troubleshooting:
 - `401` or `No credentials provided` means the launcher could not export or hydrate usable credentials.
@@ -168,7 +180,7 @@ After image changes, run:
 
 ```bash
 docker build -t toolbelt:latest .
-docker run --rm toolbelt:latest bash -lc 'command -v node npm pnpm python3 pip3 uv poetry go rustc cargo rg fd jq yq http xh curlie codex codex-real opencode kimaki docker docker-compose iptables && docker compose version && docker-compose --version && docker buildx version'
+docker run --rm toolbelt:latest bash -lc 'command -v node npm pnpm python3 pip3 uv poetry go rustc cargo rg fd jq yq http xh curlie codex codex-real claude-real forge opencode kimaki docker docker-compose iptables && docker compose version && docker-compose --version && docker buildx version'
 docker run --rm -v /var/run/docker.sock:/var/run/docker.sock toolbelt:latest bash -lc 'docker ps >/dev/null && docker compose version >/dev/null && docker-compose --version >/dev/null && docker buildx version >/dev/null'
 docker run --rm toolbelt:latest bash -c 'python3 -m venv /tmp/venv && /tmp/venv/bin/python -V && node -e "console.log(\"ok\")" && printf "package main\nfunc main(){}\n" >/tmp/main.go && go run /tmp/main.go && cargo new /tmp/rtest >/dev/null && cd /tmp/rtest && cargo check >/dev/null'
 ```

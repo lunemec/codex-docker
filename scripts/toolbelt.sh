@@ -23,6 +23,7 @@ WITH_KIMAKI=0
 WITH_K8S=0
 WITH_GITHUB=0
 WITH_GITLAB=0
+WITH_FORGE=0
 AUTO_REMOVE=1
 TMPFS_SIZE="$DEFAULT_TMPFS_SIZE"
 MOUNTS=()
@@ -40,6 +41,7 @@ KIMAKI_SRC="${TOOLBELT_KIMAKI_CONFIG_SRC:-$HOME/.kimaki}"
 KUBECONFIG_SRC="${TOOLBELT_KUBECONFIG_SRC:-$HOME/.kube/config}"
 GITHUB_CONFIG_SRC="${TOOLBELT_GITHUB_CONFIG_SRC:-$HOME/.config/gh}"
 GITLAB_CONFIG_SRC="${TOOLBELT_GITLAB_CONFIG_SRC:-$HOME/.config/glab-cli}"
+FORGE_DIR_SRC="${TOOLBELT_FORGE_DIR_SRC:-$HOME/forge}"
 GWS_RUNTIME_DIR=""
 GWS_EXPORTED_CREDENTIALS=""
 GWS_ADC_SOURCE=""
@@ -61,6 +63,7 @@ Description:
 Providers:
   codex                 Mount Codex credentials (~/.codex/auth.json, config.toml)
   claude                Mount Claude config (~/.claude/) and pass ANTHROPIC_API_KEY
+  forge                 Mount ForgeCode config (~/forge/) for multi-provider AI coding
 
 Options:
   -docker, --docker   Mount /var/run/docker.sock
@@ -72,6 +75,7 @@ Options:
   -k8s, --k8s         Mount host kubeconfig into /run/secrets/kube-config (read-only)
   -github, --github   Mount host GitHub CLI config (~/.config/gh) into container (read-only)
   -gitlab, --gitlab   Mount host GitLab CLI config (~/.config/glab-cli) into container (read-only)
+  -forge, --forge     Also mount ForgeCode config (~/forge/) when using another provider
   -image, --image IMAGE
                      Container image (default: toolbelt:latest)
   -workdir, --workdir, -w DIR
@@ -98,11 +102,15 @@ Environment overrides:
   TOOLBELT_KUBECONFIG_SRC
   TOOLBELT_GITHUB_CONFIG_SRC
   TOOLBELT_GITLAB_CONFIG_SRC
+  TOOLBELT_FORGE_DIR_SRC
   ANTHROPIC_API_KEY
 
 Examples:
   toolbelt codex
   toolbelt claude
+  toolbelt forge
+  toolbelt forge -docker ./my-project
+  toolbelt claude -forge
   toolbelt codex -docker -gcloud -gws -kimaki -k8s ./directory1 ./directory2
   toolbelt claude -k8s ./directory1 -- bash -lc 'ls -la /workspace'
 USAGE
@@ -544,12 +552,13 @@ parse_args() {
   case "${1:-}" in
     codex)  PROVIDER="codex"; shift ;;
     claude) PROVIDER="claude"; shift ;;
+    forge)  PROVIDER="forge"; shift ;;
     -h|-help|--help)
       usage
       exit 0
       ;;
     *)
-      echo "error: provider subcommand required (codex or claude)" >&2
+      echo "error: provider subcommand required (codex, claude, or forge)" >&2
       usage
       exit 1
       ;;
@@ -588,6 +597,10 @@ parse_args() {
         ;;
       -gitlab|--gitlab)
         WITH_GITLAB=1
+        shift
+        ;;
+      -forge|--forge)
+        WITH_FORGE=1
         shift
         ;;
       -image|--image)
@@ -680,6 +693,26 @@ build_mount_args() {
     fi
     if [[ -n "${CLAUDE_CREDENTIALS_FILE}" && -f "${CLAUDE_CREDENTIALS_FILE}" ]]; then
       args+=( -v "${CLAUDE_CREDENTIALS_FILE}:/run/secrets/claude-credentials.json:ro" )
+    fi
+  elif [[ "$PROVIDER" == "forge" ]]; then
+    local forge_abs_source
+    forge_abs_source="$(abs_path "$FORGE_DIR_SRC" 2>/dev/null || echo "$FORGE_DIR_SRC")"
+    if [[ -d "$forge_abs_source" ]]; then
+      args+=( -v "${forge_abs_source}:/run/secrets/forge-config:ro" )
+    else
+      echo "warning: ForgeCode config directory not found at $FORGE_DIR_SRC — forge will start unconfigured" >&2
+      echo "  run 'forge provider login' on the host or inside the container to set up providers" >&2
+    fi
+  fi
+
+  if [[ "$WITH_FORGE" -eq 1 && "$PROVIDER" != "forge" ]]; then
+    local forge_addon_abs_source
+    forge_addon_abs_source="$(abs_path "$FORGE_DIR_SRC" 2>/dev/null || echo "$FORGE_DIR_SRC")"
+    if [[ -d "$forge_addon_abs_source" ]]; then
+      args+=( -v "${forge_addon_abs_source}:/run/secrets/forge-config:ro" )
+    else
+      echo "warning: ForgeCode config directory not found at $FORGE_DIR_SRC — forge will start unconfigured" >&2
+      echo "  run 'forge provider login' on the host or inside the container to set up providers" >&2
     fi
   fi
 
@@ -792,6 +825,10 @@ build_env_args() {
 
   if [[ -n "${GWS_ADC_SOURCE}" ]]; then
     args+=( -e "GOOGLE_APPLICATION_CREDENTIALS=${GWS_ADC_DEST}" )
+  fi
+
+  if [[ "$WITH_FORGE" -eq 1 || "$PROVIDER" == "forge" ]]; then
+    args+=( -e "TOOLBELT_WITH_FORGE=1" )
   fi
 
   printf '%s\n' "${args[@]}"

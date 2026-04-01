@@ -3,8 +3,16 @@
 All notable changes to this project are documented in this file.
 
 ## [Unreleased]
+### Fixed
+- ForgeCode config mounting changed from direct bind-mount at `/home/coder/forge` to read-only secrets mount at `/run/secrets/forge-config:ro` with `copy_secret_tree` hydration into `${CODER_HOME}/forge`. Fixes `rm: cannot remove '/home/coder/forge': Device or resource busy` crash caused by the bind mount blocking the entrypoint's `/home/coder` symlink-replacement logic when `TOOLBELT_HOST_HOME` is set.
+
 ### Changed
-- `scripts/toolbelt.sh` now requires a provider subcommand (`codex` or `claude`) as the first argument; running bare `toolbelt` without a provider errors with usage help.
+- `scripts/toolbelt.sh` now requires a provider subcommand (`codex`, `claude`, or `forge`) as the first argument; running bare `toolbelt` without a provider errors with usage help.
+- `claude` binary is now wrapped: `/usr/local/bin/claude` invokes `claude-real` with Docker guard and `--dangerously-skip-permissions` (same pattern as the `codex` wrapper). The entrypoint drops to `coder` (UID 1000), so the root restriction no longer applies. The unwrapped binary is available as `claude-real`.
+- `scripts/toolbelt.sh` now supports `forge` as a third provider, mounting host `~/forge/` read-only for ForgeCode credentials.
+- `scripts/toolbelt.sh` now supports `-forge` / `--forge` flag (claude provider only) to co-mount ForgeCode config alongside Claude config in the same session.
+- `container/toolbelt-entrypoint.sh` now includes `bootstrap_forge_home()` to hydrate ForgeCode config from `/run/secrets/forge-config` into the coder user's home.
+- Container MOTD now lists `claude` (with auto-bypass note), `claude-real`, and `forge` (ForgeCode) commands.
 - `codex` provider mounts Codex credentials and `/root/.codex` tmpfs as before; `claude` provider mounts `~/.claude/` read-only and passes `ANTHROPIC_API_KEY` into the container.
 - `container/toolbelt-entrypoint.sh` now reads `TOOLBELT_PROVIDER` to conditionally bootstrap only the selected provider's home directory.
 - Launcher environment overrides renamed from `CODEX_*` to `TOOLBELT_*` (e.g. `CODEX_DEV_IMAGE` → `TOOLBELT_IMAGE`, `CODEX_GCLOUD_CONFIG_SRC` → `TOOLBELT_GCLOUD_CONFIG_SRC`). Codex-tool internals in the entrypoint (`CODEX_HOME`, `CODEX_AUTH_JSON_SRC`, `CODEX_CONFIG_TOML_SRC`, `CODEX_SHOW_MOTD`) are unchanged.
@@ -27,6 +35,7 @@ All notable changes to this project are documented in this file.
 - Coordinator quickstart/bootstrap documentation from `toolbelt` README and AGENTS guidance.
 
 ### Added
+- ForgeCode (`forge`) binary installed in the development image from upstream GitHub releases (pinned version via `FORGE_VERSION` build arg).
 - Global npm install for `opencode-ai` in the development image.
 - Global npm install for `kimaki` in the development image.
 - `scripts/verify_toolbelt_kimaki_contract.sh` launcher contract verifier for `-kimaki` default mounting, env override handling, and missing-directory failures.

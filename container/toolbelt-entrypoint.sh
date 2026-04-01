@@ -17,6 +17,8 @@ TOOLBELT_PROVIDER="${TOOLBELT_PROVIDER:-codex}"
 CLAUDE_CONFIG_SRC="${CLAUDE_CONFIG_SRC:-/run/secrets/claude-config}"
 CLAUDE_JSON_SRC="${CLAUDE_JSON_SRC:-/run/secrets/claude-config.json}"
 CLAUDE_CREDENTIALS_SRC="${CLAUDE_CREDENTIALS_SRC:-/run/secrets/claude-credentials.json}"
+FORGE_CONFIG_SRC="${FORGE_CONFIG_SRC:-/run/secrets/forge-config}"
+TOOLBELT_WITH_FORGE="${TOOLBELT_WITH_FORGE:-}"
 
 warn() {
   printf 'warning: %s\n' "$*" >&2
@@ -212,6 +214,22 @@ PY
   fi
 }
 
+bootstrap_forge_home() {
+  local forge_home="${CODER_HOME}/forge"
+
+  if [[ ! -d "${FORGE_CONFIG_SRC}" ]]; then
+    # No forge config mounted; nothing to hydrate.
+    return 0
+  fi
+
+  copy_secret_tree "${FORGE_CONFIG_SRC}" "${forge_home}" || true
+
+  # Disable auto-updates inside the container to keep the image immutable.
+  if [[ -f "${forge_home}/.forge.toml" ]]; then
+    sed -i 's/^auto_update\s*=\s*true/auto_update = false/' "${forge_home}/.forge.toml" 2>/dev/null || true
+  fi
+}
+
 bootstrap_cloud_tool_homes() {
   local gcloud_home="${CLOUDSDK_CONFIG:-${CODER_HOME}/.config/gcloud}"
   local gws_home="${GOOGLE_WORKSPACE_CLI_CONFIG_DIR:-${CODER_HOME}/.config/gws}"
@@ -339,7 +357,11 @@ show_motd() {
   printf '  %b\n' "${yellow}kimaki${reset}"
   printf '    Launch Kimaki Discord bridge CLI.\n'
   printf '  %b\n' "${yellow}claude${reset}"
-  printf '    Launch Anthropic Claude Code CLI.\n'
+  printf '    Launch Anthropic Claude Code CLI (auto --dangerously-skip-permissions).\n'
+  printf '  %b\n' "${yellow}claude-real${reset}"
+  printf '    Launch Claude Code without the auto-bypass wrapper.\n'
+  printf '  %b\n' "${yellow}forge${reset}"
+  printf '    Launch ForgeCode CLI (multi-provider coding harness).\n'
   printf '  %b\n' "${yellow}gemini${reset}"
   printf '    Launch Google Gemini CLI.\n'
   printf '  %b\n' "${yellow}cursor${reset}"
@@ -388,7 +410,12 @@ show_motd() {
 case "${TOOLBELT_PROVIDER}" in
   codex)  bootstrap_codex_home ;;
   claude) bootstrap_claude_home ;;
+  forge)  bootstrap_forge_home ;;
 esac
+# When -forge flag is used with another provider, also bootstrap forge.
+if [[ -n "${TOOLBELT_WITH_FORGE}" && "${TOOLBELT_PROVIDER}" != "forge" ]]; then
+  bootstrap_forge_home
+fi
 bootstrap_cloud_tool_homes
 bootstrap_opencode_home
 install_gws_wrapper
@@ -399,8 +426,15 @@ show_motd "$@"
 # Symlink /home/coder → host home so tools referencing /home/coder still work.
 if [[ -n "${TOOLBELT_HOST_HOME}" && "${TOOLBELT_HOST_HOME}" != "/home/coder" ]]; then
   mkdir -p "${TOOLBELT_HOST_HOME}"
-  # Symlink /home/coder → host home path.
-  rm -rf /home/coder
+  # Preserve any bind-mounts under /home/coder (e.g. ~/forge) by moving
+  # non-mount contents to the host home instead of deleting them.
+  if [[ -d /home/coder && ! -L /home/coder ]]; then
+    # Copy skeleton files (dotfiles etc.) but never overwrite existing content
+    # or descend into mount points.
+    find /home/coder -maxdepth 1 -mindepth 1 ! -mount -exec mv -n {} "${TOOLBELT_HOST_HOME}/" \; 2>/dev/null || true
+    # Now safe to replace with a symlink — only bind-mount stubs remain.
+    rm -d /home/coder 2>/dev/null || rm -rf /home/coder 2>/dev/null || true
+  fi
   ln -sfn "${TOOLBELT_HOST_HOME}" /home/coder
   usermod -d "${TOOLBELT_HOST_HOME}" coder 2>/dev/null || true
 fi

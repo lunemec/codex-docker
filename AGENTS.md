@@ -24,13 +24,14 @@ The standalone coordinator has been extracted out of this repo. Do not reintrodu
 ## Required Validation After Dockerfile Changes
 After any edit to `Dockerfile`, run:
 1. `docker build -t toolbelt:latest .`
-2. `docker run --rm toolbelt:latest bash -lc 'command -v node npm pnpm python3 pip3 uv poetry go rustc cargo rg fd jq yq http xh curlie codex codex-real docker docker-compose iptables && docker compose version && docker-compose --version && docker buildx version'`
+2. `docker run --rm toolbelt:latest bash -lc 'command -v node npm pnpm python3 pip3 uv poetry go rustc cargo rg fd jq yq http xh curlie codex codex-real claude-real forge docker docker-compose iptables && docker compose version && docker-compose --version && docker buildx version'`
 3. `docker run --rm -v /var/run/docker.sock:/var/run/docker.sock toolbelt:latest bash -lc 'docker ps >/dev/null && docker compose version >/dev/null && docker-compose --version >/dev/null && docker buildx version >/dev/null'`
 4. `docker run --rm toolbelt:latest bash -c 'python3 -m venv /tmp/venv && /tmp/venv/bin/python -V && node -e "console.log(\"ok\")" && printf "package main\nfunc main(){}\n" >/tmp/main.go && go run /tmp/main.go && cargo new /tmp/rtest >/dev/null && cd /tmp/rtest && cargo check >/dev/null'`
 
 ## Change Guidelines
 - Keep the Codex wrapper behavior intact (`/usr/local/bin/codex` invoking `codex-real` with Docker guard).
-- Claude Code is not wrapped (root restriction prevents `--dangerously-skip-permissions`).
+- Keep the Claude Code wrapper behavior intact (`/usr/local/bin/claude` invoking `claude-real` with Docker guard and `--dangerously-skip-permissions`; the entrypoint drops to `coder` UID 1000, so the root restriction no longer applies).
+- ForgeCode (`forge`) is installed as a direct binary — no wrapper needed (runs unrestricted by default).
 - Always tag the runtime image as `toolbelt:latest` unless the user explicitly requests otherwise.
 - Prefer official toolchain installs for Go and Rust unless directed otherwise.
 - Use `--no-install-recommends` for apt installs and clean apt lists after installs.

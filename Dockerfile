@@ -7,6 +7,7 @@ ARG CURSOR_AGENT_VERSION=2026.02.27-e7d2ef6
 ARG GHZ_VERSION=v0.121.0
 ARG GRPCURL_VERSION=v1.9.3
 ARG CURLIE_VERSION=v1.8.2
+ARG FORGE_VERSION=2.3.2
 ARG CLOUD_SDK_VERSION=516.0.0
 ARG KUBECTL_VERSION=v1.33.1
 
@@ -88,7 +89,8 @@ RUN python3 -m venv /opt/voice-stt \
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
 RUN npm install -g @openai/codex @anthropic-ai/claude-code @google/gemini-cli opencode-ai @ralph-orchestrator/ralph-cli @googleworkspace/cli @aisuite/chub openclaw kimaki context-mode \
-  && mv /usr/local/bin/codex /usr/local/bin/codex-real
+  && mv /usr/local/bin/codex /usr/local/bin/codex-real \
+  && mv /usr/local/bin/claude /usr/local/bin/claude-real
 
 RUN set -eux; \
   arch="$(dpkg --print-architecture)"; \
@@ -104,6 +106,18 @@ RUN set -eux; \
   ln -sf "${cursor_root}/cursor-agent" /root/.local/bin/cursor; \
   ln -sf "${cursor_root}/cursor-agent" /root/.local/bin/agent; \
   ln -sf "${cursor_root}/cursor-agent" /root/.local/bin/cursor-agent
+
+RUN set -eux; \
+  arch="$(dpkg --print-architecture)"; \
+  case "$arch" in \
+    amd64) forge_arch='x86_64-unknown-linux-gnu' ;; \
+    arm64) forge_arch='aarch64-unknown-linux-gnu' ;; \
+    *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; \
+  esac; \
+  curl -fsSL "https://github.com/antinomyhq/forgecode/releases/download/v${FORGE_VERSION}/forge-${forge_arch}" \
+    -o /tmp/forge; \
+  install -m 0755 /tmp/forge /usr/local/bin/forge; \
+  rm -f /tmp/forge
 
 RUN GOBIN=/usr/local/bin go install github.com/bojand/ghz/cmd/ghz@${GHZ_VERSION} \
   && GOBIN=/usr/local/bin go install github.com/fullstorydev/grpcurl/cmd/grpcurl@${GRPCURL_VERSION} \
@@ -159,7 +173,7 @@ RUN set -eux; \
   rg --version; fd --version; jq --version; yq --version; \
   fzf --version; cloc --version; sloccount --version; hyperfine --version; \
   http --version; xh --version; curlie --version; ncdu --version; command -v entr ffmpeg; \
-  claude --version; gemini --version; opencode --version; cursor --version; agent --version; cursor-agent --version; \
+  claude-real --version; gemini --version; opencode --version; cursor --version; agent --version; cursor-agent --version; forge --version; \
   wrk --version || true; ab -V; hey --help | head -n 2; \
   ghz --version; grpcurl --version; wget --version; aria2c --version; \
   gcloud --version | head -n 1; command -v gke-gcloud-auth-plugin kubectl kubectx kubens; gke-gcloud-auth-plugin --version >/dev/null; kubectl version --client=true >/dev/null; \
@@ -181,6 +195,17 @@ exec /usr/local/bin/codex-real \
   "$@"
 EOF
 RUN chmod +x /usr/local/bin/codex
+
+# Default: fully automatic, no permission prompts (for isolated container use only)
+RUN cat >/usr/local/bin/claude <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ -f /.dockerenv ]] || { echo "Refusing outside Docker"; exit 1; }
+exec /usr/local/bin/claude-real \
+  --dangerously-skip-permissions \
+  "$@"
+EOF
+RUN chmod +x /usr/local/bin/claude
 
 
 RUN useradd -m -s /bin/bash -d /home/coder coder \
