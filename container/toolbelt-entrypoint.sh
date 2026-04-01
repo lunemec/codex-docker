@@ -16,6 +16,7 @@ OPENCODE_CONFIG_SRC="${OPENCODE_CONFIG_SRC:-/run/secrets/opencode-config}"
 TOOLBELT_PROVIDER="${TOOLBELT_PROVIDER:-codex}"
 CLAUDE_CONFIG_SRC="${CLAUDE_CONFIG_SRC:-/run/secrets/claude-config}"
 CLAUDE_JSON_SRC="${CLAUDE_JSON_SRC:-/run/secrets/claude-config.json}"
+CLAUDE_CREDENTIALS_SRC="${CLAUDE_CREDENTIALS_SRC:-/run/secrets/claude-credentials.json}"
 
 warn() {
   printf 'warning: %s\n' "$*" >&2
@@ -200,6 +201,14 @@ PY
   # Fix installMethod: host may say "native" but container uses npm.
   if [[ -f "${CODER_HOME}/.claude.json" ]]; then
     sed -i 's/"installMethod":\s*"native"/"installMethod": "npm"/' "${CODER_HOME}/.claude.json" 2>/dev/null || true
+  fi
+
+  # Write credentials file for Linux-based credential storage.
+  # On macOS the host stores OAuth credentials in Keychain, not on disk.
+  # The launcher extracts the full credential blob and mounts it so we can
+  # populate the file-based store that Claude Code reads on Linux.
+  if [[ -f "${CLAUDE_CREDENTIALS_SRC}" ]]; then
+    install -m 600 "${CLAUDE_CREDENTIALS_SRC}" "${claude_home}/.credentials.json"
   fi
 }
 

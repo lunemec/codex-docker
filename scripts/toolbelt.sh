@@ -44,6 +44,8 @@ GWS_RUNTIME_DIR=""
 GWS_EXPORTED_CREDENTIALS=""
 GWS_ADC_SOURCE=""
 GWS_EXPORT_ERROR=""
+CLAUDE_CREDENTIALS_FILE=""
+CLAUDE_RUNTIME_DIR=""
 
 usage() {
   cat <<'USAGE'
@@ -157,9 +159,48 @@ except (json.JSONDecodeError, KeyError):
 PY
 }
 
+extract_claude_credentials_json() {
+  local raw
+  raw="$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null)" || return 1
+  python3 - "$raw" <<'PY'
+import json, sys
+try:
+    data = json.loads(sys.argv[1])
+    if "claudeAiOauth" not in data:
+        sys.exit(1)
+    print(json.dumps(data))
+except (json.JSONDecodeError, KeyError):
+    sys.exit(1)
+PY
+}
+
+prepare_claude_credentials() {
+  CLAUDE_CREDENTIALS_FILE=""
+  CLAUDE_RUNTIME_DIR=""
+
+  if [[ "$PROVIDER" != "claude" ]]; then
+    return 0
+  fi
+
+  if [[ -n "${ANTHROPIC_API_KEY_VALUE}" ]]; then
+    return 0
+  fi
+
+  local creds_json
+  creds_json="$(extract_claude_credentials_json)" || return 1
+
+  CLAUDE_RUNTIME_DIR="$(mktemp -d "${TMPDIR:-/tmp}/.toolbelt-claude.XXXXXX")"
+  CLAUDE_CREDENTIALS_FILE="${CLAUDE_RUNTIME_DIR}/credentials.json"
+  printf '%s\n' "${creds_json}" > "${CLAUDE_CREDENTIALS_FILE}"
+  chmod 600 "${CLAUDE_CREDENTIALS_FILE}"
+}
+
 cleanup_runtime_artifacts() {
   if [[ -n "${GWS_RUNTIME_DIR}" && -d "${GWS_RUNTIME_DIR}" ]]; then
     rm -rf "${GWS_RUNTIME_DIR}"
+  fi
+  if [[ -n "${CLAUDE_RUNTIME_DIR}" && -d "${CLAUDE_RUNTIME_DIR}" ]]; then
+    rm -rf "${CLAUDE_RUNTIME_DIR}"
   fi
 }
 
@@ -637,6 +678,9 @@ build_mount_args() {
     if [[ -f "$claude_json_abs_source" ]]; then
       args+=( -v "${claude_json_abs_source}:/run/secrets/claude-config.json:ro" )
     fi
+    if [[ -n "${CLAUDE_CREDENTIALS_FILE}" && -f "${CLAUDE_CREDENTIALS_FILE}" ]]; then
+      args+=( -v "${CLAUDE_CREDENTIALS_FILE}:/run/secrets/claude-credentials.json:ro" )
+    fi
   fi
 
   if [[ "$WITH_DOCKER_SOCK" -eq 1 ]]; then
@@ -729,13 +773,16 @@ build_env_args() {
   args+=( -e "TOOLBELT_HOST_HOME=${HOME}" )
 
   if [[ "$PROVIDER" == "claude" ]]; then
-    local claude_oauth_token=""
     if [[ -n "${ANTHROPIC_API_KEY_VALUE}" ]]; then
       args+=( -e "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY_VALUE}" )
-    elif claude_oauth_token="$(extract_claude_oauth_token)"; then
-      args+=( -e "CLAUDE_CODE_OAUTH_TOKEN=${claude_oauth_token}" )
-    else
-      warn "no ANTHROPIC_API_KEY set and could not extract Claude OAuth token from keychain"
+    elif [[ -z "${CLAUDE_CREDENTIALS_FILE}" ]]; then
+      # Credentials file extraction failed; fall back to access-token env var.
+      local claude_oauth_token=""
+      if claude_oauth_token="$(extract_claude_oauth_token)"; then
+        args+=( -e "CLAUDE_CODE_OAUTH_TOKEN=${claude_oauth_token}" )
+      else
+        warn "no ANTHROPIC_API_KEY set and could not extract Claude credentials from keychain"
+      fi
     fi
   fi
 
@@ -759,6 +806,7 @@ run_container() {
   local line
 
   prepare_gws_runtime_inputs
+  prepare_claude_credentials || true
   preflight_gws_scope_requirements
   mount_output="$(build_mount_args)"
   env_output="$(build_env_args)"
