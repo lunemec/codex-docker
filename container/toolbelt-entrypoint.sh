@@ -262,6 +262,10 @@ bootstrap_opencode_home() {
   local runtime_json="${opencode_home}/opencode.json"
   local default_json=""
 
+  if [[ "${TOOLBELT_WITH_OPENCODE:-}" != "1" && ! -d "${OPENCODE_CONFIG_SRC}" ]]; then
+    return 0
+  fi
+
   mkdir -p "$(dirname "${opencode_home}")" "${opencode_home}"
   chmod 700 "${opencode_home}" 2>/dev/null || true
 
@@ -301,19 +305,26 @@ install_gws_wrapper() {
   ln -sf "${wrapper_src}" "${wrapper_path}"
 }
 
-describe_script() {
-  local script_name="$1"
+feature_enabled() {
+  local token="$1"
+  local feat
+  for feat in ${TOOLBELT_FEATURES:-}; do
+    [[ "$feat" == "$token" ]] && return 0
+  done
 
-  case "${script_name}" in
-    toolbelt.sh)
-      echo "Host-side selective mount launcher (path args -> /workspace/<basename>)."
-      ;;
-    verify_*.sh)
-      echo "Contract/smoke verifier helper."
-      ;;
-    *)
-      echo "Image-baked helper script."
-      ;;
+  # Fallback: probe well-known mount paths so the MOTD works even
+  # when the container is started manually without the launcher.
+  case "$token" in
+    docker)   [[ -S /var/run/docker.sock ]] ;;
+    gcloud)   [[ -d /run/secrets/gcloud-config ]] ;;
+    gws)      [[ -d /run/secrets/gws-config ]] ;;
+    k8s)      [[ -e /run/secrets/kube-config ]] ;;
+    github)   [[ -d /run/secrets/gh-config ]] ;;
+    gitlab)   [[ -d /run/secrets/glab-config ]] ;;
+    opencode) [[ -d /run/secrets/opencode-config ]] ;;
+    kimaki)   mountpoint -q /home/coder/.kimaki 2>/dev/null ;;
+    forge)    [[ "${TOOLBELT_WITH_FORGE:-}" == "1" ]] || [[ -d /run/secrets/forge-config ]] ;;
+    *)        return 1 ;;
   esac
 }
 
@@ -341,69 +352,52 @@ show_motd() {
     green=$'\033[32m'
   fi
 
+  # --- Header ---
+  local workdir="${PWD:-/workspace}"
   printf '%b\n' "${bold}${green}Toolbelt Container${reset}"
-  printf '%b\n' "${dim}Ready at /workspace${reset}"
+  printf '%b\n' "${dim}Ready at ${workdir}${reset}"
   printf '\n'
 
-  printf '%b\n' "${bold}${cyan}Most-used commands${reset}"
-  printf '  %b\n' "${yellow}codex${reset}"
-  printf '    Launch Codex CLI (Docker-guarded wrapper).\n'
-  printf '  %b\n' "${yellow}ralph${reset}"
-  printf '    Launch Ralph CLI.\n'
-  printf '  %b\n' "${yellow}openclaw${reset}"
-  printf '    Launch OpenClaw CLI.\n'
-  printf '  %b\n' "${yellow}opencode${reset}"
-  printf '    Launch OpenCode terminal agent CLI.\n'
-  printf '  %b\n' "${yellow}kimaki${reset}"
-  printf '    Launch Kimaki Discord bridge CLI.\n'
-  printf '  %b\n' "${yellow}claude${reset}"
-  printf '    Launch Anthropic Claude Code CLI (auto --dangerously-skip-permissions).\n'
-  printf '  %b\n' "${yellow}claude-real${reset}"
-  printf '    Launch Claude Code without the auto-bypass wrapper.\n'
-  printf '  %b\n' "${yellow}forge${reset}"
-  printf '    Launch ForgeCode CLI (multi-provider coding harness).\n'
-  printf '  %b\n' "${yellow}gemini${reset}"
-  printf '    Launch Google Gemini CLI.\n'
-  printf '  %b\n' "${yellow}cursor${reset}"
-  printf '    Launch Cursor Agent CLI (`agent` and `cursor-agent` aliases).\n'
+  # --- Workspace mounts ---
+  printf '%b\n' "${bold}${cyan}Workspace mounts${reset}"
+  if [[ -n "${TOOLBELT_MOUNTS:-}" ]]; then
+    local IFS=':'
+    local pair
+    for pair in ${TOOLBELT_MOUNTS}; do
+      local host_path="${pair%%=*}"
+      local cont_path="${pair#*=}"
+      printf '  %b -> %b\n' "${yellow}${host_path}${reset}" "${cont_path}"
+    done
+    unset IFS
+  else
+    printf '  %s\n' "${workdir} (current directory)"
+  fi
   printf '\n'
 
-  local path base
-  local -a scripts=()
-  local -a core_scripts=()
-  local -a verify_scripts=()
+  # --- Features ---
+  printf '%b\n' "${bold}${cyan}Features${reset}"
+  local -a feat_names=( docker gcloud gws k8s github gitlab opencode kimaki forge )
+  local -a feat_labels=("Docker" "Google Cloud" "Google Workspace" "Kubernetes" "GitHub CLI" "GitLab CLI" "OpenCode" "Kimaki" "ForgeCode")
+  local i label_width=18 col=0 cols=3
 
-  shopt -s nullglob
-  scripts=(/opt/toolbelt/scripts/*.sh)
-  shopt -u nullglob
-
-  for path in "${scripts[@]}"; do
-    base="$(basename "${path}")"
-    if [[ "${base}" == verify_*.sh ]]; then
-      verify_scripts+=("${path}")
+  for (( i=0; i<${#feat_names[@]}; i++ )); do
+    local tag label
+    label="${feat_labels[$i]}"
+    if feature_enabled "${feat_names[$i]}"; then
+      tag="${green}[x]${reset}"
     else
-      core_scripts+=("${path}")
+      tag="${dim}[ ]${reset}"
+    fi
+    printf '  %b %-*s' "$tag" "$label_width" "$label"
+    col=$(( col + 1 ))
+    if (( col >= cols )); then
+      printf '\n'
+      col=0
     fi
   done
 
-  printf '%b\n' "${bold}${cyan}Image-baked scripts${reset}"
-  if (( ${#scripts[@]} == 0 )); then
-    printf '  %s\n' "No scripts found under /opt/toolbelt/scripts."
-  else
-    for path in "${core_scripts[@]}"; do
-      base="$(basename "${path}")"
-      printf '  %b\n' "${yellow}${path}${reset}"
-      printf '    %s\n' "$(describe_script "${base}")"
-    done
-    if (( ${#verify_scripts[@]} > 0 )); then
-      printf '\n'
-      printf '%b\n' "${bold}${cyan}Verification scripts${reset}"
-      for path in "${verify_scripts[@]}"; do
-        base="$(basename "${path}")"
-        printf '  %b\n' "${yellow}${path}${reset}"
-        printf '    %s\n' "$(describe_script "${base}")"
-      done
-    fi
+  if (( col > 0 )); then
+    printf '\n'
   fi
 }
 
@@ -420,6 +414,9 @@ bootstrap_cloud_tool_homes
 bootstrap_opencode_home
 install_gws_wrapper
 show_motd "$@"
+
+# Bootstrap-only env vars -- keep them out of the interactive shell.
+unset TOOLBELT_MOUNTS TOOLBELT_FEATURES 2>/dev/null || true
 
 # When TOOLBELT_HOST_HOME is set, use it as HOME so that both ~/... and
 # /Users/<user>/... paths resolve correctly inside the container.

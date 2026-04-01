@@ -114,9 +114,9 @@ run_toolbelt_case() {
     export HOME="${home_dir}"
     export FAKE_DOCKER_LOG="${scenario_root}/docker.log"
     if [[ -n "${kimaki_src_override}" ]]; then
-      export CODEX_KIMAKI_CONFIG_SRC="${kimaki_src_override}"
+      export TOOLBELT_KIMAKI_CONFIG_SRC="${kimaki_src_override}"
     fi
-    bash "${REPO_ROOT}/scripts/toolbelt.sh" "$@" >"${stdout_path}" 2>"${stderr_path}"
+    bash "${REPO_ROOT}/scripts/toolbelt.sh" codex "$@" >"${stdout_path}" 2>"${stderr_path}"
   )
   CASE_STATUS=$?
   set -e
@@ -134,17 +134,17 @@ trap cleanup EXIT
 
 run_toolbelt_case default-mount default -kimaki
 [[ "${CASE_STATUS}" -eq 0 ]] || fail "default-mount should succeed"
-assert_contains "${CASE_DOCKER_LOG}" "-v $(canonical_path "${TMP_ROOT}/default-mount/cwd"):/workspace" "default workspace mount"
+assert_contains "${CASE_DOCKER_LOG}" "-v $(canonical_path "${TMP_ROOT}/default-mount/cwd"):$(canonical_path "${TMP_ROOT}/default-mount/cwd")" "default workspace mount"
 assert_contains "${CASE_DOCKER_LOG}" "-v $(canonical_path "${TMP_ROOT}/default-mount/home/.config/opencode"):/run/secrets/opencode-config:ro" "default implied opencode mount"
-assert_contains "${CASE_DOCKER_LOG}" "-v $(canonical_path "${TMP_ROOT}/default-mount/home/.kimaki"):/root/.kimaki" "default kimaki mount"
-assert_not_contains "${CASE_DOCKER_LOG}" "$(canonical_path "${TMP_ROOT}/default-mount/home/.kimaki"):/root/.kimaki:ro" "default kimaki mount mode"
+assert_contains "${CASE_DOCKER_LOG}" "-v $(canonical_path "${TMP_ROOT}/default-mount/home/.kimaki"):/home/coder/.kimaki" "default kimaki mount"
+assert_not_contains "${CASE_DOCKER_LOG}" "$(canonical_path "${TMP_ROOT}/default-mount/home/.kimaki"):/home/coder/.kimaki:ro" "default kimaki mount mode"
 assert_not_contains "${CASE_DOCKER_LOG}" "/root/.config/opencode" "default should not bind host opencode home directly"
 
 run_toolbelt_case env-override override -kimaki
 [[ "${CASE_STATUS}" -eq 0 ]] || fail "env-override should succeed"
 assert_contains "${CASE_DOCKER_LOG}" "-v $(canonical_path "${TMP_ROOT}/env-override/home/.config/opencode"):/run/secrets/opencode-config:ro" "override implied opencode mount"
-assert_contains "${CASE_DOCKER_LOG}" "-v $(canonical_path "${TMP_ROOT}/env-override/kimaki-custom"):/root/.kimaki" "override kimaki mount"
-assert_not_contains "${CASE_DOCKER_LOG}" "-v $(canonical_path "${TMP_ROOT}/env-override/home/.kimaki"):/root/.kimaki" "override should replace default kimaki source"
+assert_contains "${CASE_DOCKER_LOG}" "-v $(canonical_path "${TMP_ROOT}/env-override/kimaki-custom"):/home/coder/.kimaki" "override kimaki mount"
+assert_not_contains "${CASE_DOCKER_LOG}" "-v $(canonical_path "${TMP_ROOT}/env-override/home/.kimaki"):/home/coder/.kimaki" "override should replace default kimaki source"
 
 run_toolbelt_case missing-source missing -kimaki
 [[ "${CASE_STATUS}" -ne 0 ]] || fail "missing-source should fail"

@@ -120,10 +120,10 @@ Behavior summary:
 - `-gcloud` / `--gcloud` mounts host `~/.config/gcloud` read-only to `/run/secrets/gcloud-config`; entrypoint hydrates `/root/.config/gcloud`.
 - `-gws` / `--gws` mounts host `~/.config/gws`, exports portable host `gws` credentials when available, and sets `GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE=/run/secrets/gws-credentials/credentials.json` inside the container.
 - `-gws` / `--gws` still hydrates `~/.config/gws` for compatibility and uses ADC as fallback when exported credentials are unavailable.
-- Host `~/.config/opencode` is passed in automatically when present as read-only runtime input at `/run/secrets/opencode-config`; entrypoint hydrates `/root/.config/opencode` so the same authorized providers are visible inside the container.
-- `-opencode` / `--opencode` makes that OpenCode import required and fails fast when `~/.config/opencode` (or `TOOLBELT_OPENCODE_CONFIG_SRC`) is unavailable.
-- `-kimaki` / `--kimaki` mounts host `~/.kimaki` read-write to `/root/.kimaki` and implicitly enables the same required OpenCode import.
-- OpenCode config hydration is one-way for the session: host config seeds container runtime state, but container-side changes do not write back to the host automatically.
+- `-opencode` / `--opencode` mounts host `~/.config/opencode` as read-only runtime input at `/run/secrets/opencode-config`; entrypoint hydrates `/root/.config/opencode` so the same authorized providers are visible inside the container.
+- `-opencode` / `--opencode` fails fast when `~/.config/opencode` (or `TOOLBELT_OPENCODE_CONFIG_SRC`) is unavailable.
+- `-kimaki` / `--kimaki` mounts host `~/.kimaki` read-write to `/home/coder/.kimaki` and implicitly enables the required OpenCode import.
+- OpenCode config hydration is one-way for the session: when imported, host config seeds container runtime state, but container-side changes do not write back to the host automatically.
 - Current status: direct `gws` support in the container is still experimental/incomplete; the scope-guard flow below improves diagnostics but is not yet treated as a fully validated end-to-end path.
 - Direct `gws <service> <resource> <method>` commands launched through `scripts/toolbelt.sh -gws -- ...` now attempt a host-side scope preflight; confirmed scope mismatches fail before `docker run` with a re-auth hint such as `gws auth login -s drive`.
 - Shell-wrapped launcher commands such as `-- bash -lc 'gws ...'` intentionally skip host-side scope preflight because the launcher cannot infer the eventual `gws` method safely.
@@ -139,7 +139,7 @@ Troubleshooting:
 
 ## Interactive Container Behavior
 
-At startup, the entrypoint bootstraps auth/config homes for the selected provider and prints a short MOTD listing available commands and baked scripts.
+At startup, the entrypoint bootstraps auth/config homes for the selected provider and prints a short MOTD with workspace mounts and enabled session features.
 
 ## Voice STT
 

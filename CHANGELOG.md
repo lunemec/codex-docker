@@ -12,7 +12,7 @@ All notable changes to this project are documented in this file.
 - `scripts/toolbelt.sh` now supports `forge` as a third provider, mounting host `~/forge/` read-only for ForgeCode credentials.
 - `scripts/toolbelt.sh` now supports `-forge` / `--forge` flag (claude provider only) to co-mount ForgeCode config alongside Claude config in the same session.
 - `container/toolbelt-entrypoint.sh` now includes `bootstrap_forge_home()` to hydrate ForgeCode config from `/run/secrets/forge-config` into the coder user's home.
-- Container MOTD now lists `claude` (with auto-bypass note), `claude-real`, and `forge` (ForgeCode) commands.
+- Container MOTD now stays compact by focusing on workspace mounts and enabled features, without listing baked helper or verification scripts by default.
 - `codex` provider mounts Codex credentials and `/root/.codex` tmpfs as before; `claude` provider mounts `~/.claude/` read-only and passes `ANTHROPIC_API_KEY` into the container.
 - `container/toolbelt-entrypoint.sh` now reads `TOOLBELT_PROVIDER` to conditionally bootstrap only the selected provider's home directory.
 - Launcher environment overrides renamed from `CODEX_*` to `TOOLBELT_*` (e.g. `CODEX_DEV_IMAGE` → `TOOLBELT_IMAGE`, `CODEX_GCLOUD_CONFIG_SRC` → `TOOLBELT_GCLOUD_CONFIG_SRC`). Codex-tool internals in the entrypoint (`CODEX_HOME`, `CODEX_AUTH_JSON_SRC`, `CODEX_CONFIG_TOML_SRC`, `CODEX_SHOW_MOTD`) are unchanged.
@@ -25,10 +25,10 @@ All notable changes to this project are documented in this file.
 - `codex-init-workspace` is now a deprecated compatibility stub that exits with guidance instead of seeding embedded coordinator assets.
 - The container MOTD now points users at `/workspace/coordinator` when that standalone repository is present and otherwise states that coordinator assets are no longer embedded in the image.
 - `README.md`, `container/toolbelt-entrypoint.sh`, and `container/codex-init-workspace.sh` now describe the coordinator split as the steady-state boundary for this phase: `toolbelt` only references an external checkout at `/workspace/coordinator`, while `codex-init-workspace` remains redirect-only.
-- `scripts/toolbelt.sh` now auto-imports host OpenCode config from `~/.config/opencode` when present, passes it as read-only runtime input, and `-opencode` / `--opencode` now acts as a fail-fast requirement flag; `CODEX_OPENCODE_CONFIG_SRC` still overrides the host source path.
-- `scripts/toolbelt.sh` now supports `-kimaki` / `--kimaki`, which mounts host Kimaki state from `~/.kimaki` to `/root/.kimaki` by default; `CODEX_KIMAKI_CONFIG_SRC` overrides the host source path.
-- `scripts/toolbelt.sh -kimaki/--kimaki` now implicitly enables the required OpenCode import so Kimaki sees the same OpenCode config inside the container.
-- `container/toolbelt-entrypoint.sh` now hydrates host OpenCode config into `/root/.config/opencode` and merges required container defaults so host-authorized providers stay visible without masking the baked `context-mode` setup.
+- `scripts/toolbelt.sh` now mounts host OpenCode config only when `-opencode` / `--opencode` is requested, instead of auto-importing it into every session.
+- `scripts/toolbelt.sh` now supports `-kimaki` / `--kimaki`, which mounts host Kimaki state from `~/.kimaki` to `/home/coder/.kimaki` by default; `TOOLBELT_KIMAKI_CONFIG_SRC` overrides the host source path.
+- `scripts/toolbelt.sh -kimaki/--kimaki` continues to implicitly enable the required OpenCode import so Kimaki sees the same OpenCode config inside the container.
+- `container/toolbelt-entrypoint.sh` now hydrates OpenCode runtime state only for sessions that explicitly import OpenCode config, while still preserving the baked `context-mode` defaults.
 
 ### Removed
 - Embedded coordinator baseline files from the `toolbelt` Docker build context.

@@ -70,7 +70,7 @@ Options:
   -gcloud, --gcloud   Mount host gcloud config into /run/secrets/gcloud-config (read-only)
   -gws, --gws         Export portable gws auth into container runtime config, mount gws config, and use ADC fallback when needed
   -opencode, --opencode
-                     Require host OpenCode config and mount it into /run/secrets/opencode-config (read-only)
+                     Mount host OpenCode config into /run/secrets/opencode-config (read-only) and fail if it is unavailable
   -kimaki, --kimaki   Mount host Kimaki data dir into /home/coder/.kimaki (read-write)
   -k8s, --k8s         Mount host kubeconfig into /run/secrets/kube-config (read-only)
   -github, --github   Mount host GitHub CLI config (~/.config/gh) into container (read-only)
@@ -746,16 +746,17 @@ build_mount_args() {
     fi
   fi
 
-  opencode_abs_source="$(abs_path "$OPENCODE_CONFIG_SRC")"
-  if [[ -d "$opencode_abs_source" ]]; then
-    args+=( -v "${opencode_abs_source}:${OPENCODE_CONFIG_MOUNT}:ro" )
-  elif [[ "$WITH_OPENCODE" -eq 1 ]]; then
-    if [[ "$WITH_KIMAKI" -eq 1 ]]; then
+  if [[ "$WITH_OPENCODE" -eq 1 ]]; then
+    opencode_abs_source="$(abs_path "$OPENCODE_CONFIG_SRC")"
+    if [[ -d "$opencode_abs_source" ]]; then
+      args+=( -v "${opencode_abs_source}:${OPENCODE_CONFIG_MOUNT}:ro" )
+    elif [[ "$WITH_KIMAKI" -eq 1 ]]; then
       echo "requested -opencode/--opencode (implicitly via -kimaki/--kimaki) but OpenCode config directory is not available: $OPENCODE_CONFIG_SRC" >&2
+      exit 1
     else
       echo "requested -opencode/--opencode but OpenCode config directory is not available: $OPENCODE_CONFIG_SRC" >&2
+      exit 1
     fi
-    exit 1
   fi
 
   if [[ "$WITH_KIMAKI" -eq 1 ]]; then
@@ -805,6 +806,36 @@ build_env_args() {
   args+=( -e "TOOLBELT_PROVIDER=${PROVIDER}" )
   args+=( -e "TOOLBELT_HOST_HOME=${HOME}" )
 
+  # Pass workspace mount metadata so the entrypoint MOTD can display them.
+  local mount_pairs="" abs_src
+  for src in "${MOUNTS[@]}"; do
+    abs_src="$(abs_path "$src")"
+    if [[ -n "$mount_pairs" ]]; then
+      mount_pairs+=":"
+    fi
+    mount_pairs+="${abs_src}=${abs_src}"
+  done
+  if [[ -n "$mount_pairs" ]]; then
+    args+=( -e "TOOLBELT_MOUNTS=${mount_pairs}" )
+  fi
+
+  # Pass enabled feature tokens so the entrypoint MOTD can render check marks.
+  local -a features=()
+  [[ "$WITH_DOCKER_SOCK" -eq 1 ]] && features+=("docker")
+  [[ "$WITH_GCLOUD" -eq 1 ]]      && features+=("gcloud")
+  [[ "$WITH_GWS" -eq 1 ]]         && features+=("gws")
+  [[ "$WITH_K8S" -eq 1 ]]         && features+=("k8s")
+  [[ "$WITH_GITHUB" -eq 1 ]]      && features+=("github")
+  [[ "$WITH_GITLAB" -eq 1 ]]      && features+=("gitlab")
+  [[ "$WITH_OPENCODE" -eq 1 ]]    && features+=("opencode")
+  [[ "$WITH_KIMAKI" -eq 1 ]]      && features+=("kimaki")
+  if [[ "$WITH_FORGE" -eq 1 || "$PROVIDER" == "forge" ]]; then
+    features+=("forge")
+  fi
+  if [[ ${#features[@]} -gt 0 ]]; then
+    args+=( -e "TOOLBELT_FEATURES=${features[*]}" )
+  fi
+
   if [[ "$PROVIDER" == "claude" ]]; then
     if [[ -n "${ANTHROPIC_API_KEY_VALUE}" ]]; then
       args+=( -e "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY_VALUE}" )
@@ -825,6 +856,10 @@ build_env_args() {
 
   if [[ -n "${GWS_ADC_SOURCE}" ]]; then
     args+=( -e "GOOGLE_APPLICATION_CREDENTIALS=${GWS_ADC_DEST}" )
+  fi
+
+  if [[ "$WITH_OPENCODE" -eq 1 ]]; then
+    args+=( -e "TOOLBELT_WITH_OPENCODE=1" )
   fi
 
   if [[ "$WITH_FORGE" -eq 1 || "$PROVIDER" == "forge" ]]; then

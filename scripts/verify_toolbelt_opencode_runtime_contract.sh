@@ -33,11 +33,11 @@ assert_not_contains() {
 write_entrypoint_harness() {
   local path="$1"
 
-  cat >"${path}" <<EOF
+  cat >"${path}" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-source <(sed -e '/^bootstrap_codex_home\$/,\$d' "${REPO_ROOT}/container/toolbelt-entrypoint.sh")
+source <(sed '/^case "${TOOLBELT_PROVIDER}" in/,$d' "${REPO_ROOT}/container/toolbelt-entrypoint.sh")
 bootstrap_opencode_home
 EOF
 
@@ -81,7 +81,7 @@ run_bootstrap_case() {
   "$@"
 
   set +e
-  OPENCODE_HOME="${opencode_home}" OPENCODE_CONFIG_SRC="${opencode_src}" \
+  REPO_ROOT="${REPO_ROOT}" TOOLBELT_WITH_OPENCODE=1 OPENCODE_HOME="${opencode_home}" OPENCODE_CONFIG_SRC="${opencode_src}" \
     bash "${HARNESS_PATH}" >"${stdout_path}" 2>"${stderr_path}"
   CASE_STATUS=$?
   set -e

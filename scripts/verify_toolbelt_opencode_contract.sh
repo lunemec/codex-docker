@@ -125,9 +125,9 @@ run_toolbelt_case() {
     export HOME="${home_dir}"
     export FAKE_DOCKER_LOG="${scenario_root}/docker.log"
     if [[ -n "${opencode_src_override}" ]]; then
-      export CODEX_OPENCODE_CONFIG_SRC="${opencode_src_override}"
+      export TOOLBELT_OPENCODE_CONFIG_SRC="${opencode_src_override}"
     fi
-    bash "${REPO_ROOT}/scripts/toolbelt.sh" "$@" >"${stdout_path}" 2>"${stderr_path}"
+    bash "${REPO_ROOT}/scripts/toolbelt.sh" codex "$@" >"${stdout_path}" 2>"${stderr_path}"
   )
   CASE_STATUS=$?
   set -e
@@ -143,24 +143,20 @@ run_toolbelt_case() {
 
 trap cleanup EXIT
 
-run_toolbelt_case auto-default default missing
-[[ "${CASE_STATUS}" -eq 0 ]] || fail "auto-default should succeed"
-assert_contains "${CASE_DOCKER_LOG}" "-v $(canonical_path "${TMP_ROOT}/auto-default/cwd"):/workspace" "default workspace mount"
-assert_contains "${CASE_DOCKER_LOG}" "-v $(canonical_path "${TMP_ROOT}/auto-default/home/.config/opencode"):/run/secrets/opencode-config:ro" "default auto opencode mount"
-assert_not_contains "${CASE_DOCKER_LOG}" "/root/.config/opencode" "default should not bind host opencode home directly"
+run_toolbelt_case default-without-flag default missing
+[[ "${CASE_STATUS}" -eq 0 ]] || fail "default-without-flag should succeed"
+assert_contains "${CASE_DOCKER_LOG}" "-v $(canonical_path "${TMP_ROOT}/default-without-flag/cwd"):$(canonical_path "${TMP_ROOT}/default-without-flag/cwd")" "default workspace mount"
+assert_not_contains "${CASE_DOCKER_LOG}" "/run/secrets/opencode-config" "default-without-flag should skip opencode mount"
 
-run_toolbelt_case auto-env-override override missing
-[[ "${CASE_STATUS}" -eq 0 ]] || fail "auto-env-override should succeed"
-assert_contains "${CASE_DOCKER_LOG}" "-v $(canonical_path "${TMP_ROOT}/auto-env-override/opencode-custom"):/run/secrets/opencode-config:ro" "override auto opencode mount"
-assert_not_contains "${CASE_DOCKER_LOG}" "-v $(canonical_path "${TMP_ROOT}/auto-env-override/home/.config/opencode"):/run/secrets/opencode-config:ro" "override should replace default opencode source"
-
-run_toolbelt_case auto-missing missing missing
-[[ "${CASE_STATUS}" -eq 0 ]] || fail "auto-missing should succeed"
-assert_not_contains "${CASE_DOCKER_LOG}" "/run/secrets/opencode-config" "auto-missing should skip opencode mount"
+run_toolbelt_case explicit-env-override override missing -opencode
+[[ "${CASE_STATUS}" -eq 0 ]] || fail "explicit-env-override should succeed"
+assert_contains "${CASE_DOCKER_LOG}" "-v $(canonical_path "${TMP_ROOT}/explicit-env-override/opencode-custom"):/run/secrets/opencode-config:ro" "override explicit opencode mount"
+assert_not_contains "${CASE_DOCKER_LOG}" "-v $(canonical_path "${TMP_ROOT}/explicit-env-override/home/.config/opencode"):/run/secrets/opencode-config:ro" "override should replace default opencode source"
 
 run_toolbelt_case explicit-default default missing -opencode
 [[ "${CASE_STATUS}" -eq 0 ]] || fail "explicit-default should succeed"
 assert_contains "${CASE_DOCKER_LOG}" "-v $(canonical_path "${TMP_ROOT}/explicit-default/home/.config/opencode"):/run/secrets/opencode-config:ro" "explicit opencode mount"
+assert_not_contains "${CASE_DOCKER_LOG}" "/root/.config/opencode" "explicit should not bind host opencode home directly"
 
 run_toolbelt_case missing-source missing missing -opencode
 [[ "${CASE_STATUS}" -ne 0 ]] || fail "missing-source should fail"
@@ -170,7 +166,7 @@ assert_not_contains "${CASE_DOCKER_LOG}" "run" "missing-source docker launch"
 run_toolbelt_case kimaki-implies default present -kimaki
 [[ "${CASE_STATUS}" -eq 0 ]] || fail "kimaki-implies should succeed"
 assert_contains "${CASE_DOCKER_LOG}" "-v $(canonical_path "${TMP_ROOT}/kimaki-implies/home/.config/opencode"):/run/secrets/opencode-config:ro" "kimaki implied opencode mount"
-assert_contains "${CASE_DOCKER_LOG}" "-v $(canonical_path "${TMP_ROOT}/kimaki-implies/home/.kimaki"):/root/.kimaki" "kimaki mount"
+assert_contains "${CASE_DOCKER_LOG}" "-v $(canonical_path "${TMP_ROOT}/kimaki-implies/home/.kimaki"):/home/coder/.kimaki" "kimaki mount"
 
 run_toolbelt_case kimaki-missing-opencode missing present -kimaki
 [[ "${CASE_STATUS}" -ne 0 ]] || fail "kimaki-missing-opencode should fail"
