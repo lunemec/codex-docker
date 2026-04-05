@@ -1,15 +1,7 @@
 # Dockerfile
 FROM node:22-trixie
 
-ARG GO_VERSION=1.23.8
 ARG RUST_TOOLCHAIN=stable
-ARG CURSOR_AGENT_VERSION=2026.02.27-e7d2ef6
-ARG GHZ_VERSION=v0.121.0
-ARG GRPCURL_VERSION=v1.9.3
-ARG CURLIE_VERSION=v1.8.2
-ARG FORGE_VERSION=2.3.2
-ARG CLOUD_SDK_VERSION=516.0.0
-ARG KUBECTL_VERSION=v1.33.1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
   bash ca-certificates curl git docker-cli docker-compose docker-buildx iptables python3 make g++ ffmpeg \
@@ -32,7 +24,6 @@ RUN set -eux; \
   apt-get update && apt-get install -y --no-install-recommends gh \
   && rm -rf /var/lib/apt/lists/*
 
-ARG GLAB_VERSION=1.90.0
 RUN set -eux; \
   arch="$(dpkg --print-architecture)"; \
   case "$arch" in \
@@ -40,6 +31,8 @@ RUN set -eux; \
     arm64) glab_arch='arm64' ;; \
     *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; \
   esac; \
+  GLAB_VERSION="$(curl -fsSL https://api.github.com/repos/gitlab-org/cli/releases/latest | jq -r '.tag_name' | sed 's/^v//')"; \
+  echo "Installing glab ${GLAB_VERSION}"; \
   curl -fsSL "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/glab_${GLAB_VERSION}_linux_${glab_arch}.tar.gz" \
     -o /tmp/glab.tar.gz; \
   tar -xzf /tmp/glab.tar.gz -C /tmp; \
@@ -53,6 +46,8 @@ RUN set -eux; \
     arm64) goarch='arm64' ;; \
     *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; \
   esac; \
+  GO_VERSION="$(curl -fsSL 'https://go.dev/VERSION?m=text' | head -1 | sed 's/^go//')"; \
+  echo "Installing Go ${GO_VERSION}"; \
   curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${goarch}.tar.gz" -o /tmp/go.tgz; \
   rm -rf /usr/local/go; \
   tar -C /usr/local -xzf /tmp/go.tgz; \
@@ -99,6 +94,8 @@ RUN set -eux; \
     arm64) cursor_arch='arm64' ;; \
     *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; \
   esac; \
+  CURSOR_AGENT_VERSION="$(curl -fsSL https://api.cursor.com/version/lab/latest | jq -r '.version')"; \
+  echo "Installing cursor-agent ${CURSOR_AGENT_VERSION}"; \
   cursor_root="/root/.local/share/cursor-agent/versions/${CURSOR_AGENT_VERSION}"; \
   mkdir -p "$cursor_root" /root/.local/bin; \
   curl -fsSL "https://downloads.cursor.com/lab/${CURSOR_AGENT_VERSION}/linux/${cursor_arch}/agent-cli-package.tar.gz" \
@@ -114,14 +111,16 @@ RUN set -eux; \
     arm64) forge_arch='aarch64-unknown-linux-gnu' ;; \
     *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; \
   esac; \
+  FORGE_VERSION="$(curl -fsSL https://api.github.com/repos/antinomyhq/forgecode/releases/latest | jq -r '.tag_name' | sed 's/^v//')"; \
+  echo "Installing forge ${FORGE_VERSION}"; \
   curl -fsSL "https://github.com/antinomyhq/forgecode/releases/download/v${FORGE_VERSION}/forge-${forge_arch}" \
     -o /tmp/forge; \
   install -m 0755 /tmp/forge /usr/local/bin/forge; \
   rm -f /tmp/forge
 
-RUN GOBIN=/usr/local/bin go install github.com/bojand/ghz/cmd/ghz@${GHZ_VERSION} \
-  && GOBIN=/usr/local/bin go install github.com/fullstorydev/grpcurl/cmd/grpcurl@${GRPCURL_VERSION} \
-  && GOBIN=/usr/local/bin go install github.com/rs/curlie@${CURLIE_VERSION}
+RUN GOBIN=/usr/local/bin go install github.com/bojand/ghz/cmd/ghz@latest \
+  && GOBIN=/usr/local/bin go install github.com/fullstorydev/grpcurl/cmd/grpcurl@latest \
+  && GOBIN=/usr/local/bin go install github.com/rs/curlie@latest
 
 RUN mkdir -p /home/coder/.config/opencode \
   && cat >/home/coder/.config/opencode/opencode.json <<'EOF'
@@ -144,6 +143,8 @@ RUN set -eux; \
     arm64) gcloud_arch='arm'; kubectl_arch='arm64' ;; \
     *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; \
   esac; \
+  CLOUD_SDK_VERSION="$(curl -fsSL https://dl.google.com/dl/cloudsdk/channels/rapid/components-2.json | jq -r '.version')"; \
+  echo "Installing gcloud ${CLOUD_SDK_VERSION}"; \
   curl -fsSL "https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-${CLOUD_SDK_VERSION}-linux-${gcloud_arch}.tar.gz" -o /tmp/google-cloud-cli.tgz; \
   tar -C /usr/local -xzf /tmp/google-cloud-cli.tgz; \
   rm -f /tmp/google-cloud-cli.tgz; \
@@ -152,6 +153,8 @@ RUN set -eux; \
   ln -sf /usr/local/google-cloud-sdk/bin/gsutil /usr/local/bin/gsutil; \
   /usr/local/google-cloud-sdk/bin/gcloud components install gke-gcloud-auth-plugin --quiet; \
   ln -sf /usr/local/google-cloud-sdk/bin/gke-gcloud-auth-plugin /usr/local/bin/gke-gcloud-auth-plugin; \
+  KUBECTL_VERSION="$(curl -fsSL https://dl.k8s.io/release/stable.txt)"; \
+  echo "Installing kubectl ${KUBECTL_VERSION}"; \
   curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${kubectl_arch}/kubectl" -o /usr/local/bin/kubectl; \
   chmod 0755 /usr/local/bin/kubectl
 
