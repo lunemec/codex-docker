@@ -89,6 +89,9 @@ RUN npm install -g @openai/codex @anthropic-ai/claude-code @google/gemini-cli op
 
 RUN npx playwright install --with-deps chromium
 
+# Pinned: Cursor removed their version discovery API (api.cursor.com/version/lab/latest
+# returns 404 as of 2026-04). Update manually when new versions are confirmed.
+ARG CURSOR_AGENT_VERSION=2026.02.27-e7d2ef6
 RUN set -eux; \
   arch="$(dpkg --print-architecture)"; \
   case "$arch" in \
@@ -96,7 +99,6 @@ RUN set -eux; \
     arm64) cursor_arch='arm64' ;; \
     *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; \
   esac; \
-  CURSOR_AGENT_VERSION="$(curl -fsSL https://api.cursor.com/version/lab/latest | jq -r '.version')"; \
   echo "Installing cursor-agent ${CURSOR_AGENT_VERSION}"; \
   cursor_root="/root/.local/share/cursor-agent/versions/${CURSOR_AGENT_VERSION}"; \
   mkdir -p "$cursor_root" /root/.local/bin; \
