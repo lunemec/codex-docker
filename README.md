@@ -20,6 +20,9 @@ Installed toolchains and CLIs include:
 - AI CLIs: `codex`, `claude`, `gemini`, `opencode`, `forge` (ForgeCode), and Cursor Agent as `cursor` (`agent`/`cursor-agent` aliases)
 - Workspace CLIs: `ralph`, `openclaw`, `kimaki`, and `@googleworkspace/cli`
 - MCP tools: `context-mode` (context window management for AI agents)
+- Runtime: `bun` + `bunx` (latest release)
+- Memory: `mempalace` CLI + `mempalace-mcp` wrapper (semantic memory palace, auto-mounted from host when `~/.mempalace` exists)
+- Agent frameworks: `archon` CLI (Archon agent framework, skills pre-installed at `~/.claude/skills/archon`)
 - `codex` wrapper and `codex-real`
 
 The `codex` wrapper is preserved as:
@@ -110,6 +113,52 @@ scripts/toolbelt.sh codex -opencode ./directory1 ./directory2
 scripts/toolbelt.sh claude -k8s ./directory1 -- bash -lc 'ls -la /workspace'
 ```
 
+### SSH Keys
+
+The `-ssh` flag mounts project-scoped SSH keys into the container. It is **opt-in** — keys are never mounted automatically.
+
+Discovery: when `-ssh` is passed, the launcher scans each mounted directory for `.toolbelt/ssh/id_ed25519`. The first match wins. If `-ssh` is requested but no key is found, the launcher exits with an error.
+
+```bash
+# Project layout:
+# ./my-project/.toolbelt/ssh/id_ed25519
+# ./my-project/.toolbelt/ssh/id_ed25519.pub
+
+scripts/toolbelt.sh codex -ssh ./my-project
+```
+
+The entrypoint installs the key into `/home/coder/.ssh/` and pre-seeds `known_hosts` for GitLab.
+
+### Mempalace
+
+[Mempalace](https://github.com/milla-jovovich/mempalace) is a semantic memory palace backed by ChromaDB and a knowledge graph. When `~/.mempalace` exists on the host it is **auto-detected and mounted read-write** into the container at the same absolute path (so the database is shared with the host and persists across container restarts).
+
+The ChromaDB ONNX model cache (`~/.cache/chroma`) is also mounted so the 80 MB model is downloaded once and reused.
+
+On container startup `bootstrap_mempalace` registers the MCP server in `~/.claude.json` so Claude Code can use mempalace tools immediately:
+
+```
+mempalace_search, mempalace_add_drawer, mempalace_kg_query, mempalace_diary_write, …
+```
+
+**Host setup** — install a wrapper so the shared `~/.claude.json` entry works on the host too:
+
+```bash
+sudo tee /usr/local/bin/mempalace-mcp <<'EOF'
+#!/usr/bin/env bash
+exec python3.11 -m mempalace.mcp_server --palace "${HOME}/.mempalace/palace" "$@"
+EOF
+sudo chmod +x /usr/local/bin/mempalace-mcp
+```
+
+Replace `python3.11` with whichever Python has mempalace installed (`pip show mempalace` to check). Install the GitHub version for MCP support:
+
+```bash
+pip install "git+https://github.com/milla-jovovich/mempalace.git"
+```
+
+No flags are needed — mempalace is enabled automatically when `~/.mempalace` is present.
+
 ### GitHub and GitLab CLI Access
 
 The `-github` and `-gitlab` flags provide token-based authentication for `gh` and `glab` inside the container. No host config directories are mounted — only the token is passed as an environment variable, keeping agent access scoped to exactly the permissions you grant.
@@ -172,7 +221,9 @@ Behavior summary:
 - Shell-wrapped launcher commands such as `-- bash -lc 'gws ...'` intentionally skip host-side scope preflight because the launcher cannot infer the eventual `gws` method safely.
 - After rebuilding the image, the container entrypoint also installs an experimental `gws` wrapper that preflights direct in-container `gws <service> <resource> <method>` calls and appends a scope hint if a raw `403 insufficientPermissions` still bubbles up.
 - `-k8s` / `--k8s` mounts host `~/.kube/config` read-only to `/run/secrets/kube-config`; entrypoint hydrates `/root/.kube/config`.
-- `-github` / `--github` and `-gitlab` / `--gitlab` pass `GITHUB_TOKEN` / `GITLAB_TOKEN` into the container as environment variables. No host config directories are mounted. Tokens are resolved from inline flag values, host env vars, or a `.toolbelt.env` file in the project directory.
+- `-github` / `--github` and `-gitlab` / `--gitlab` pass `GITHUB_TOKEN` / `GITLAB_TOKEN` into the container as environment variables **only when the flag is explicitly passed**. No host config directories are mounted. Tokens are resolved from inline flag values, host env vars, or a `.toolbelt.env` file in the project directory.
+- `-ssh` / `--ssh` (opt-in) scans mounted directories for `.toolbelt/ssh/id_ed25519` and mounts it read-only; fails fast if the flag is passed but no key is found.
+- Mempalace is auto-enabled (no flag needed) when `~/.mempalace` exists on the host; the database is mounted read-write and the ONNX model cache is mounted to avoid re-downloading the 80 MB model.
 - Override credential source paths with `TOOLBELT_CLAUDE_DIR_SRC`, `TOOLBELT_FORGE_DIR_SRC`, `TOOLBELT_GCLOUD_CONFIG_SRC`, `TOOLBELT_GWS_CONFIG_SRC`, `TOOLBELT_OPENCODE_CONFIG_SRC`, `TOOLBELT_KIMAKI_CONFIG_SRC`, and `TOOLBELT_KUBECONFIG_SRC`.
 
 Troubleshooting:
