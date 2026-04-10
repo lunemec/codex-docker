@@ -27,6 +27,8 @@ GITLAB_TOKEN_VALUE=""
 WITH_FORGE=0
 WITH_SSH=0
 SSH_KEY_DIR=""
+WITH_MEMPALACE=0
+MEMPALACE_SRC="${TOOLBELT_MEMPALACE_SRC:-$HOME/.mempalace}"
 AUTO_REMOVE=1
 MOUNTS=()
 MOUNT_PWD_TO_WORKSPACE=0
@@ -81,6 +83,7 @@ Options:
                      Enable GitLab CLI inside the container via GITLAB_TOKEN.
                      Token resolution: inline value > GITLAB_TOKEN env var > .toolbelt.env
   -forge, --forge     Also mount ForgeCode config (~/forge/) when using another provider
+  -ssh, --ssh         Mount project SSH keys from .toolbelt/ssh/ (opt-in)
   -image, --image IMAGE
                      Container image (default: toolbelt:latest)
   -workdir, --workdir, -w DIR
@@ -120,7 +123,7 @@ Examples:
   toolbelt claude -forge
   toolbelt codex -github -gitlab ./my-project
   toolbelt codex -github "ghp_xxx" -gitlab "glpat-xxx" ./my-project
-  toolbelt codex -docker -gcloud -gws -kimaki -k8s ./directory1 ./directory2
+  toolbelt codex -docker -gcloud -gws -kimaki -k8s -ssh ./directory1 ./directory2
   toolbelt claude -k8s ./directory1 -- bash -lc 'ls -la /workspace'
 USAGE
 }
@@ -638,6 +641,10 @@ parse_args() {
         WITH_FORGE=1
         shift
         ;;
+      -ssh|--ssh)
+        WITH_SSH=1
+        shift
+        ;;
       -image|--image)
         IMAGE="$2"
         shift 2
@@ -724,16 +731,26 @@ resolve_cli_tokens() {
     GITLAB_TOKEN_VALUE="${GLAB_TOKEN:-${GITLAB_TOKEN:-}}"
   fi
 
-  # SSH key discovery: scan mounted directories for .toolbelt/ssh/
-  local abs_src_ssh
-  for src in "${MOUNTS[@]}"; do
-    abs_src_ssh="$(abs_path "$src" 2>/dev/null || echo "$src")"
-    if [[ -d "${abs_src_ssh}/.toolbelt/ssh" && -f "${abs_src_ssh}/.toolbelt/ssh/id_ed25519" ]]; then
-      SSH_KEY_DIR="${abs_src_ssh}/.toolbelt/ssh"
-      WITH_SSH=1
-      break
+  # SSH key discovery: scan mounted directories for .toolbelt/ssh/ (only when -ssh flag is set)
+  if [[ "$WITH_SSH" -eq 1 ]]; then
+    local abs_src_ssh
+    for src in "${MOUNTS[@]}"; do
+      abs_src_ssh="$(abs_path "$src" 2>/dev/null || echo "$src")"
+      if [[ -d "${abs_src_ssh}/.toolbelt/ssh" && -f "${abs_src_ssh}/.toolbelt/ssh/id_ed25519" ]]; then
+        SSH_KEY_DIR="${abs_src_ssh}/.toolbelt/ssh"
+        break
+      fi
+    done
+    if [[ -z "${SSH_KEY_DIR}" ]]; then
+      echo "error: -ssh requested but no .toolbelt/ssh/id_ed25519 found in any mounted directory" >&2
+      exit 1
     fi
-  done
+  fi
+
+  # Mempalace auto-discovery: if ~/.mempalace exists on host, mount it RW
+  if [[ -d "${MEMPALACE_SRC}" ]]; then
+    WITH_MEMPALACE=1
+  fi
 
   # Validate: if a flag was requested but no token was found, error out.
   if [[ "$WITH_GITHUB" -eq 1 && -z "${GITHUB_TOKEN_VALUE}" ]]; then
@@ -894,6 +911,22 @@ build_mount_args() {
     args+=( -v "${SSH_KEY_DIR}:/run/secrets/ssh-keys:ro" )
   fi
 
+  if [[ "$WITH_MEMPALACE" -eq 1 ]]; then
+    mempalace_abs_source="$(abs_path "$MEMPALACE_SRC")"
+    if [[ -d "$mempalace_abs_source" ]]; then
+      # Mempalace is mounted RW using the same src=dst path as workspace mounts.
+      # /home/coder is replaced by a symlink to the host home in the entrypoint,
+      # so mounting to /home/coder/.mempalace would strand the bind mount.
+      # Using the absolute host path ensures it survives that substitution.
+      args+=( -v "${mempalace_abs_source}:${mempalace_abs_source}" )
+    fi
+    # Mount the chromadb ONNX model cache so the 80MB model is downloaded once
+    # to the host and reused across all container starts instead of re-downloading.
+    # Docker creates the directory on first run if it doesn't exist yet.
+    chroma_cache_src="$(abs_path "$HOME/.cache/chroma")"
+    args+=( -v "${chroma_cache_src}:${chroma_cache_src}" )
+  fi
+
   printf '%s\n' "${args[@]}"
 }
 
@@ -939,6 +972,7 @@ build_env_args() {
   [[ "$WITH_SSH" -eq 1 ]]         && features+=("ssh")
   [[ "$WITH_OPENCODE" -eq 1 ]]    && features+=("opencode")
   [[ "$WITH_KIMAKI" -eq 1 ]]      && features+=("kimaki")
+  [[ "$WITH_MEMPALACE" -eq 1 ]]   && features+=("mempalace")
   if [[ "$WITH_FORGE" -eq 1 || "$PROVIDER" == "forge" ]]; then
     features+=("forge")
   fi
@@ -976,12 +1010,12 @@ build_env_args() {
     args+=( -e "TOOLBELT_WITH_FORGE=1" )
   fi
 
-  if [[ -n "${GITHUB_TOKEN_VALUE}" ]]; then
+  if [[ "$WITH_GITHUB" -eq 1 && -n "${GITHUB_TOKEN_VALUE}" ]]; then
     args+=( -e "GITHUB_TOKEN=${GITHUB_TOKEN_VALUE}" )
     args+=( -e "GH_TOKEN=${GITHUB_TOKEN_VALUE}" )
   fi
 
-  if [[ -n "${GITLAB_TOKEN_VALUE}" ]]; then
+  if [[ "$WITH_GITLAB" -eq 1 && -n "${GITLAB_TOKEN_VALUE}" ]]; then
     args+=( -e "GITLAB_TOKEN=${GITLAB_TOKEN_VALUE}" )
     args+=( -e "GLAB_TOKEN=${GITLAB_TOKEN_VALUE}" )
   fi

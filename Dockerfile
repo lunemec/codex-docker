@@ -6,12 +6,12 @@ ARG RUST_TOOLCHAIN=stable
 RUN apt-get update && apt-get install -y --no-install-recommends \
   bash ca-certificates curl git docker-cli docker-compose docker-buildx iptables python3 make g++ ffmpeg \
   less vim nano tree tmux fzf ripgrep fd-find jq yq zip xz-utils \
-  cloc sloccount hyperfine entr httpie xh ncdu \
+  cloc sloccount hyperfine entr httpie xh ncdu unzip \
   wrk apache2-utils hey wget aria2 \
   kubectx \
   sudo procps iproute2 iputils-ping dnsutils netcat-openbsd lsof strace rsync openssh-client \
   build-essential pkg-config cmake ninja-build libssl-dev libffi-dev \
-  python3-pip python3-venv pipx shellcheck shfmt \
+  python3-dev python3-pip python3-venv pipx shellcheck shfmt \
   && rm -rf /var/lib/apt/lists/*
 
 RUN ln -sf /usr/bin/fdfind /usr/local/bin/fd
@@ -81,7 +81,49 @@ RUN python3 -m venv /opt/voice-stt \
   && /opt/voice-stt/bin/pip install --upgrade pip \
   && /opt/voice-stt/bin/pip install --no-cache-dir faster-whisper requests
 
+RUN python3 -m venv /opt/mempalace \
+  && echo 'chromadb>=1.0.0' > /tmp/mp-overrides.txt \
+  && uv pip install \
+       --python /opt/mempalace/bin/python \
+       --no-cache \
+       --override /tmp/mp-overrides.txt \
+       "git+https://github.com/milla-jovovich/mempalace.git" \
+  && rm /tmp/mp-overrides.txt \
+  && ln -s /opt/mempalace/bin/mempalace /usr/local/bin/mempalace \
+  && ln -s /opt/mempalace/bin/python /usr/local/bin/python \
+  && printf '#!/usr/bin/env bash\nexec /opt/mempalace/bin/python -m mempalace.mcp_server --palace "${HOME}/.mempalace/palace" "$@"\n' \
+       > /usr/local/bin/mempalace-mcp \
+  && chmod +x /usr/local/bin/mempalace-mcp
+
 RUN corepack enable && corepack prepare pnpm@latest --activate
+
+RUN set -eux; \
+  arch="$(dpkg --print-architecture)"; \
+  case "$arch" in \
+    amd64) bun_arch='x64' ;; \
+    arm64) bun_arch='aarch64' ;; \
+    *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; \
+  esac; \
+  BUN_VERSION="$(curl -fsSL https://api.github.com/repos/oven-sh/bun/releases/latest | jq -r '.tag_name' | sed 's/^bun-v//')"; \
+  echo "Installing bun ${BUN_VERSION}"; \
+  curl -fsSL "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-${bun_arch}.zip" \
+    -o /tmp/bun.zip; \
+  unzip -j /tmp/bun.zip "bun-linux-${bun_arch}/bun" -d /usr/local/bin; \
+  chmod 0755 /usr/local/bin/bun; \
+  ln -sf /usr/local/bin/bun /usr/local/bin/bunx; \
+  rm -f /tmp/bun.zip
+
+RUN git clone --depth=1 https://github.com/coleam00/Archon.git /opt/archon \
+  && cd /opt/archon \
+  && bun install \
+  && chmod -R a+rX /opt/archon
+
+RUN printf '#!/usr/bin/env sh\nexec bun /opt/archon/packages/cli/src/cli.ts "$@"\n' \
+    > /usr/local/bin/archon \
+  && chmod 0755 /usr/local/bin/archon
+
+RUN mkdir -p /home/coder/.claude/skills/archon \
+  && cp -r /opt/archon/.claude/skills/archon/. /home/coder/.claude/skills/archon/
 
 RUN npm install -g @openai/codex @anthropic-ai/claude-code @google/gemini-cli opencode-ai @ralph-orchestrator/ralph-cli @googleworkspace/cli @aisuite/chub openclaw kimaki context-mode @playwright/test \
   && mv /usr/local/bin/codex /usr/local/bin/codex-real \
@@ -191,7 +233,10 @@ RUN set -eux; \
   ralph --version; \
   context-mode --version; \
   gh --version; glab --version; \
-  npx playwright --version
+  npx playwright --version; \
+  bun --version; \
+  archon version; \
+  test -d /home/coder/.claude/skills/archon
 
 # Default: fully automatic, no sandbox/approvals (for isolated container use only)
 RUN cat >/usr/local/bin/codex <<'EOF'

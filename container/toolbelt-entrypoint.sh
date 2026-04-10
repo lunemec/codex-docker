@@ -402,6 +402,24 @@ bootstrap_forge_home() {
   fi
 }
 
+bootstrap_archon_skill() {
+  local skill_src="/opt/archon/.claude/skills/archon"
+  local skill_dst="${CODER_HOME}/.claude/skills/archon"
+
+  [[ -d "${skill_src}" ]] || return 0
+
+  # Only inject if not already present (host's .claude takes priority if it has its own)
+  if [[ -d "${skill_dst}" ]]; then
+    return 0
+  fi
+
+  mkdir -p "${skill_dst}"
+  chmod 700 "${skill_dst}" 2>/dev/null || true
+  cp -a "${skill_src}/." "${skill_dst}/"
+  find "${skill_dst}" -type d -exec chmod 700 {} + 2>/dev/null || true
+  find "${skill_dst}" -type f -exec chmod 600 {} + 2>/dev/null || true
+}
+
 bootstrap_cloud_tool_homes() {
   local gcloud_home="${CLOUDSDK_CONFIG:-${CODER_HOME}/.config/gcloud}"
   local gws_home="${GOOGLE_WORKSPACE_CLI_CONFIG_DIR:-${CODER_HOME}/.config/gws}"
@@ -476,6 +494,43 @@ SSHCONF
   chmod 600 "${ssh_home}/config"
 }
 
+bootstrap_mempalace() {
+  # The mempalace mount uses src=dst path (same as workspace mounts) so it
+  # survives the /home/coder → TOOLBELT_HOST_HOME symlink substitution.
+  # Check TOOLBELT_HOST_HOME first, fall back to CODER_HOME for manual runs.
+  local mempalace_dir="${TOOLBELT_HOST_HOME:-${CODER_HOME}}/.mempalace"
+  [[ -d "${mempalace_dir}" ]] || return 0
+
+  # MEMPALACE_PALACE_PATH must point to the palace/ subdirectory (ChromaDB data),
+  # not the root ~/.mempalace dir, otherwise mempalace falls back to config.json
+  # which contains the hardcoded host path.
+  export MEMPALACE_PALACE_PATH="${mempalace_dir}/palace"
+
+  # Inject MCP server config into Claude Code's ~/.claude.json under the
+  # user-level mcpServers key. This is the correct location — settings.json
+  # does not register MCP servers; claude.json does.
+  local claude_json="${CODER_HOME}/.claude.json"
+  [[ -f "${claude_json}" ]] || return 0
+
+  python3 - "${claude_json}" <<'PY'
+import json, sys
+path = sys.argv[1]
+try:
+    with open(path) as f:
+        s = json.load(f)
+except (json.JSONDecodeError, FileNotFoundError):
+    s = {}
+s.setdefault("mcpServers", {})
+s["mcpServers"]["mempalace"] = {
+    "type": "stdio",
+    "command": "mempalace-mcp"
+}
+with open(path, "w") as f:
+    json.dump(s, f, indent=2)
+    f.write("\n")
+PY
+}
+
 install_gws_wrapper() {
   local existing_gws_path=""
   local real_gws_path="/usr/local/bin/gws-real"
@@ -517,8 +572,9 @@ feature_enabled() {
     gitlab)   [[ -n "${GLAB_TOKEN:-}" ]] ;;
     ssh)      [[ -d /run/secrets/ssh-keys ]] ;;
     opencode) [[ -d /run/secrets/opencode-config ]] ;;
-    kimaki)   mountpoint -q /home/coder/.kimaki 2>/dev/null ;;
-    forge)    [[ "${TOOLBELT_WITH_FORGE:-}" == "1" ]] || [[ -d /run/secrets/forge-config ]] ;;
+    kimaki)     mountpoint -q /home/coder/.kimaki 2>/dev/null ;;
+    mempalace)  [[ -d "${TOOLBELT_HOST_HOME:-${CODER_HOME}}/.mempalace" ]] ;;
+    forge)      [[ "${TOOLBELT_WITH_FORGE:-}" == "1" ]] || [[ -d /run/secrets/forge-config ]] ;;
     *)        return 1 ;;
   esac
 }
@@ -571,8 +627,8 @@ show_motd() {
 
   # --- Features ---
   printf '%b\n' "${bold}${cyan}Features${reset}"
-  local -a feat_names=( docker gcloud gws k8s github gitlab ssh opencode kimaki forge )
-  local -a feat_labels=("Docker" "Google Cloud" "Google Workspace" "Kubernetes" "GitHub CLI" "GitLab CLI" "SSH Keys" "OpenCode" "Kimaki" "ForgeCode")
+  local -a feat_names=( docker gcloud gws k8s github gitlab ssh opencode kimaki mempalace forge )
+  local -a feat_labels=("Docker" "Google Cloud" "Google Workspace" "Kubernetes" "GitHub CLI" "GitLab CLI" "SSH Keys" "OpenCode" "Kimaki" "Mempalace" "ForgeCode")
   local i label_width=18 col=0 cols=3
 
   for (( i=0; i<${#feat_names[@]}; i++ )); do
@@ -605,8 +661,10 @@ esac
 if [[ -n "${TOOLBELT_WITH_FORGE}" && "${TOOLBELT_PROVIDER}" != "forge" ]]; then
   bootstrap_forge_home
 fi
+bootstrap_archon_skill
 bootstrap_cloud_tool_homes
 bootstrap_ssh
+bootstrap_mempalace
 
 # Point GWS/gcloud credential env vars at the writable hydrated copies
 # instead of the read-only /run/secrets/ mounts so token refresh can write.
